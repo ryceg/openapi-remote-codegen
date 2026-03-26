@@ -10,8 +10,8 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/public.d.ts",
+      "import": "./dist/public.js"
     },
     "./config": {
       "types": "./dist/config.d.ts",
