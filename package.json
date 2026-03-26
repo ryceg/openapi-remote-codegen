@@ -1,0 +1,10 @@
+{
+  "name": "openapi-remote-codegen-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter openapi-remote-codegen build",
+    "test": "pnpm --filter openapi-remote-codegen test"
+  }
+}
