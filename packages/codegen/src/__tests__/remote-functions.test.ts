@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { generateRemoteFunctions } from '../generators/remote-functions.js';
+import { resolveConfig } from '../config.js';
 import type { OperationInfo, ParsedSpec } from '../types.js';
+
+const defaultConfig = resolveConfig({});
 
 function createOperation(overrides: Partial<OperationInfo> = {}): OperationInfo {
   return {
@@ -18,7 +21,7 @@ function createOperation(overrides: Partial<OperationInfo> = {}): OperationInfo 
 }
 
 function getGeneratedFile(parsed: ParsedSpec, fileName: string): string {
-  const files = generateRemoteFunctions(parsed);
+  const files = generateRemoteFunctions(parsed, defaultConfig);
   const content = files.get(fileName);
   if (!content) {
     const available = Array.from(files.keys()).join(', ');
@@ -278,6 +281,35 @@ describe('generateRemoteFunctions', () => {
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain('= query(async');
+    });
+  });
+
+  describe('config customization', () => {
+    it('uses custom import paths from config', () => {
+      const config = resolveConfig({
+        imports: { server: '@my/server', kit: '@my/kit', schemas: '@my/schemas', apiTypes: '@my/types', zod: 'zod4' },
+      });
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+      const files = generateRemoteFunctions(parsed, config);
+      const content = files.get('foods.generated.remote.ts')!;
+      expect(content).toContain("from '@my/server'");
+      expect(content).toContain("from '@my/kit'");
+    });
+
+    it('uses custom client access expression', () => {
+      const config = resolveConfig({
+        clientAccess: 'container.resolve("ApiClient")',
+      });
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+      const files = generateRemoteFunctions(parsed, config);
+      const content = files.get('foods.generated.remote.ts')!;
+      expect(content).toContain('container.resolve("ApiClient")');
     });
   });
 });
