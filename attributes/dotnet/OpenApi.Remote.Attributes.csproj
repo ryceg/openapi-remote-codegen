@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PackageId>OpenApi.Remote.Attributes</PackageId>
+    <PackageId>OpenApiRemoteCodegen.Attributes</PackageId>
     <Version>0.1.0</Version>
     <Description>C# attributes and NSwag operation processor for emitting x-remote-* OpenAPI extensions used by openapi-remote-codegen</Description>
     <PackageTags>openapi;nswag;sveltekit;remote-functions;codegen</PackageTags>
