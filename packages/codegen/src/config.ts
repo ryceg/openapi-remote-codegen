@@ -1,0 +1,95 @@
+export interface ImportPaths {
+  /** Module providing query, command, form, getRequestEvent. Default: '$app/server' */
+  server: string;
+  /** Module providing error, redirect. Default: '@sveltejs/kit' */
+  kit: string;
+  /** Module providing Zod schemas. Default: '$lib/api/generated/schemas' */
+  schemas: string;
+  /** Module providing API types/enums. Default: '$api' */
+  apiTypes: string;
+  /** Zod module. Default: 'zod' */
+  zod: string;
+}
+
+export interface ErrorHandling {
+  /** Code to execute on 401. Has access to `url` (current URL). Default: redirect to /auth/login */
+  on401: string;
+  /** Code to execute on 403. Default: error(403, 'Forbidden') */
+  on403: string;
+  /** Function that takes a human-readable function name and returns code for 500. */
+  on500: (functionName: string) => string;
+}
+
+export interface GeneratorConfig {
+  /** Path to the OpenAPI spec JSON file. Default: './openapi.json' */
+  openApiPath: string;
+  /** Base output directory. Default: './src/lib' */
+  outputDir: string;
+  /** Subdirectory within outputDir for remote function files. Default: 'api/generated' */
+  remoteFunctionsOutput: string;
+  /** Path within outputDir for the ApiClient wrapper. Default: 'api/api-client.generated.ts' */
+  apiClientOutput: string;
+  /** Import paths used in generated code. */
+  imports: ImportPaths;
+  /** Expression to access the API client in generated functions. Default: 'getRequestEvent().locals.apiClient' */
+  clientAccess: string;
+  /** Error handling templates for generated catch blocks. */
+  errorHandling: ErrorHandling;
+  /** Path to the NSwag-generated client module (used in ApiClient imports). Default: './generated/api-client' */
+  nswagClientPath: string;
+}
+
+export type UserConfig = Partial<Omit<GeneratorConfig, 'imports' | 'errorHandling'>> & {
+  imports?: Partial<ImportPaths>;
+  errorHandling?: Partial<ErrorHandling>;
+};
+
+const DEFAULT_IMPORTS: ImportPaths = {
+  server: '$app/server',
+  kit: '@sveltejs/kit',
+  schemas: '$lib/api/generated/schemas',
+  apiTypes: '$api',
+  zod: 'zod',
+};
+
+const DEFAULT_ERROR_HANDLING: ErrorHandling = {
+  on401: 'const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`)',
+  on403: "throw error(403, 'Forbidden')",
+  on500: (functionName: string) => `throw error(500, 'Failed to ${functionName}')`,
+};
+
+const DEFAULTS: GeneratorConfig = {
+  openApiPath: './openapi.json',
+  outputDir: './src/lib',
+  remoteFunctionsOutput: 'api/generated',
+  apiClientOutput: 'api/api-client.generated.ts',
+  imports: DEFAULT_IMPORTS,
+  clientAccess: 'getRequestEvent().locals.apiClient',
+  errorHandling: DEFAULT_ERROR_HANDLING,
+  nswagClientPath: './generated/api-client',
+};
+
+/** Type-helper for config files. Returns the input as-is. */
+export function defineConfig(config: UserConfig): UserConfig {
+  return config;
+}
+
+/** Merge user config with defaults to produce a fully resolved config. */
+export function resolveConfig(user: UserConfig): GeneratorConfig {
+  return {
+    openApiPath: user.openApiPath ?? DEFAULTS.openApiPath,
+    outputDir: user.outputDir ?? DEFAULTS.outputDir,
+    remoteFunctionsOutput: user.remoteFunctionsOutput ?? DEFAULTS.remoteFunctionsOutput,
+    apiClientOutput: user.apiClientOutput ?? DEFAULTS.apiClientOutput,
+    imports: {
+      ...DEFAULTS.imports,
+      ...user.imports,
+    },
+    clientAccess: user.clientAccess ?? DEFAULTS.clientAccess,
+    errorHandling: {
+      ...DEFAULTS.errorHandling,
+      ...user.errorHandling,
+    },
+    nswagClientPath: user.nswagClientPath ?? DEFAULTS.nswagClientPath,
+  };
+}
