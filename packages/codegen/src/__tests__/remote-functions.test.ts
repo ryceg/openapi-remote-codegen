@@ -206,7 +206,7 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain("import { getRequestEvent, form } from '$app/server'");
     });
 
-    it('imports invalid from @sveltejs/kit when forms present', () => {
+    it('does not import invalid from @sveltejs/kit when forms present', () => {
       const parsed: ParsedSpec = {
         operations: [createOperation({
           operationId: 'Foods_AddFavorite',
@@ -217,7 +217,8 @@ describe('generateRemoteFunctions', () => {
       };
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
-      expect(content).toContain("import { error, redirect, invalid } from '@sveltejs/kit'");
+      expect(content).toContain("import { error, redirect } from '@sveltejs/kit'");
+      expect(content).not.toContain('invalid');
     });
 
     it('includes refresh calls in form functions', () => {
@@ -281,6 +282,90 @@ describe('generateRemoteFunctions', () => {
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain('= query(async');
+    });
+  });
+
+  describe('file upload functions', () => {
+    it('generates a file upload function that accepts a File parameter', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Avatar_Upload',
+          tag: 'Avatar',
+          method: 'post',
+          path: '/api/v4/me/avatar',
+          remoteType: 'command',
+          isFileUpload: true,
+          fileFieldName: 'file',
+          isVoidResponse: false,
+          responseSchema: 'AvatarUploadResponse',
+        })],
+        tags: ['Avatar'],
+      };
+
+      const content = getGeneratedFile(parsed, 'avatars.generated.remote.ts');
+      expect(content).toContain('async (file: File)');
+      expect(content).toContain("formData.append('file', file)");
+      expect(content).toContain('await response.json()');
+      expect(content).toContain('return result');
+    });
+
+    it('generates a void file upload function with success return', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Avatar_Upload',
+          tag: 'Avatar',
+          method: 'post',
+          path: '/api/v4/me/avatar',
+          remoteType: 'command',
+          isFileUpload: true,
+          fileFieldName: 'file',
+          isVoidResponse: true,
+        })],
+        tags: ['Avatar'],
+      };
+
+      const content = getGeneratedFile(parsed, 'avatars.generated.remote.ts');
+      expect(content).toContain('async (file: File)');
+      expect(content).toContain("return { success: true }");
+      expect(content).not.toContain('await response.json()');
+    });
+
+    it('uses the correct endpoint path in the upload URL', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Sounds_UploadSound',
+          tag: 'Sounds',
+          method: 'post',
+          path: '/api/v4/alert-sounds',
+          remoteType: 'command',
+          isFileUpload: true,
+          fileFieldName: 'file',
+          isVoidResponse: false,
+        })],
+        tags: ['Sounds'],
+      };
+
+      const content = getGeneratedFile(parsed, 'sounds.generated.remote.ts');
+      expect(content).toContain("apiClient.baseUrl + '/api/v4/alert-sounds'");
+    });
+
+    it('uses form wrapper when remoteType is form', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Avatar_Upload',
+          tag: 'Avatar',
+          method: 'post',
+          path: '/api/v4/me/avatar',
+          remoteType: 'form',
+          isFileUpload: true,
+          fileFieldName: 'file',
+          isVoidResponse: false,
+        })],
+        tags: ['Avatar'],
+      };
+
+      const content = getGeneratedFile(parsed, 'avatars.generated.remote.ts');
+      expect(content).toContain('= form(async (file: File)');
     });
   });
 

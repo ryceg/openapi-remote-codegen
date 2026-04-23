@@ -554,6 +554,76 @@ describe('parseOpenApiSpec', () => {
     expect(result.operations[0].isBatch).toBe(false);
   });
 
+  it('detects multipart/form-data file upload endpoints (IFormFile)', () => {
+    const spec = createSpec({
+      paths: {
+        '/api/v4/me/avatar': {
+          post: {
+            tags: ['Avatar'],
+            operationId: 'Avatar_Upload',
+            'x-remote-type': 'command',
+            requestBody: {
+              content: {
+                'multipart/form-data': {
+                  schema: {
+                    properties: {
+                      ContentType: { type: 'string', nullable: true },
+                      ContentDisposition: { type: 'string', nullable: true },
+                      Headers: { type: 'array', nullable: true, items: {} },
+                      Length: { type: 'integer', format: 'int64' },
+                      Name: { type: 'string', nullable: true },
+                      FileName: { type: 'string', nullable: true },
+                    },
+                  },
+                },
+              },
+            },
+            responses: {
+              '200': {
+                description: '',
+                content: { 'application/json': { schema: { $ref: '#/components/schemas/UploadResponse' } } },
+              },
+            },
+          } as any,
+        },
+      },
+    });
+
+    const result = parseOpenApiSpec(spec);
+    expect(result.operations[0].isFileUpload).toBe(true);
+    expect(result.operations[0].fileFieldName).toBe('file');
+  });
+
+  it('does not detect non-IFormFile multipart as file upload', () => {
+    const spec = createSpec({
+      paths: {
+        '/api/v4/form': {
+          post: {
+            tags: ['Forms'],
+            operationId: 'Forms_Submit',
+            'x-remote-type': 'command',
+            requestBody: {
+              content: {
+                'multipart/form-data': {
+                  schema: {
+                    properties: {
+                      name: { type: 'string' },
+                      email: { type: 'string' },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { '200': { description: 'OK' } },
+          } as any,
+        },
+      },
+    });
+
+    const result = parseOpenApiSpec(spec);
+    expect(result.operations[0].isFileUpload).toBeUndefined();
+  });
+
   it('isBatch is false for command endpoints even with x-remote-batch', () => {
     const spec = createSpec({
       paths: {

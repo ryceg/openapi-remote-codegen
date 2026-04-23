@@ -8,6 +8,8 @@ export interface ParameterInfo {
   enumName?: string;
   /** For array-type parameters, the type of each item (e.g., 'string', 'number') */
   itemType?: string;
+  /** For array-type parameters whose items are an enum, the enum type name */
+  itemEnumName?: string;
 }
 
 /**
@@ -34,6 +36,10 @@ export interface OperationInfo {
   isArrayBody?: boolean;
   /** Inline request body for schemas that don't have a named $ref (e.g., Dictionary<string, string>) */
   inlineRequestBody?: InlineRequestBody;
+  /** Whether this operation accepts a file upload (multipart/form-data with IFormFile) */
+  isFileUpload?: boolean;
+  /** The form field name for file upload (e.g., "file") */
+  fileFieldName?: string;
   responseSchema?: string;
   isVoidResponse: boolean;
   /** Whether this query should use query.batch() for N+1 prevention */

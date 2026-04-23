@@ -39,6 +39,9 @@ export function parseOpenApiSpec(spec: OpenAPIV3.Document): ParsedSpec {
       const requestBodySchema = requestBodyResult?.schema;
       const isArrayBody = requestBodyResult?.isArray ?? false;
 
+      // Detect multipart/form-data file uploads (NSwag decomposes IFormFile into metadata properties)
+      const fileUploadResult = parseFileUpload(operation.requestBody as OpenAPIV3.RequestBodyObject | undefined);
+
       // Check success response codes in priority order (200, 201, 202)
       const responseSchema =
         parseResponse(operation.responses?.['200'] as OpenAPIV3.ResponseObject | undefined) ??
@@ -61,6 +64,8 @@ export function parseOpenApiSpec(spec: OpenAPIV3.Document): ParsedSpec {
         requestBodyRequired: requestBodyResult?.required,
         isArrayBody,
         inlineRequestBody: requestBodyResult?.inline,
+        isFileUpload: fileUploadResult?.isFileUpload,
+        fileFieldName: fileUploadResult?.fieldName,
         responseSchema,
         isVoidResponse,
         isBatch,
@@ -105,13 +110,18 @@ function parseParameters(
       }
     }
 
-    // For array parameters, capture the item type
+    // For array parameters, capture the item type and enum name
     if (resolved?.type === 'array' && resolved.items) {
-      const itemSchema = resolveSchema(
-        resolved.items as OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject,
-        components
-      );
+      const itemSchemaRaw = resolved.items as OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject;
+      const itemSchema = resolveSchema(itemSchemaRaw, components);
       paramInfo.itemType = getSchemaType(itemSchema);
+
+      if (itemSchema?.enum) {
+        const itemEnumName = findEnumName(itemSchemaRaw, components);
+        if (itemEnumName) {
+          paramInfo.itemEnumName = itemEnumName;
+        }
+      }
     }
 
     result.push(paramInfo);
@@ -282,6 +292,40 @@ function parseResponse(response: OpenAPIV3.ResponseObject | undefined): string |
       const itemName = items.$ref.split('/').pop();
       return itemName ? `${itemName}[]` : undefined;
     }
+  }
+
+  return undefined;
+}
+
+/**
+ * Detect multipart/form-data file upload endpoints.
+ *
+ * NSwag decomposes C# IFormFile into its properties (ContentType, ContentDisposition,
+ * Headers, Length, Name, FileName). We detect this pattern and mark the operation as a
+ * file upload so the generator can produce a function that accepts a File object.
+ *
+ * The heuristic: a multipart/form-data schema that contains properties typical of
+ * IFormFile (FileName, ContentType, Length) rather than normal form fields.
+ */
+function parseFileUpload(body: OpenAPIV3.RequestBodyObject | undefined): { isFileUpload: boolean; fieldName: string } | undefined {
+  if (!body?.content?.['multipart/form-data']?.schema) return undefined;
+
+  const schema = body.content['multipart/form-data'].schema;
+  if ('$ref' in schema) return undefined;
+
+  const schemaObj = schema as OpenAPIV3.SchemaObject;
+  const props = schemaObj.properties;
+  if (!props) return undefined;
+
+  const propNames = new Set(Object.keys(props).map(k => k.toLowerCase()));
+
+  // IFormFile signature: has FileName, ContentType, and Length properties
+  const isIFormFile = propNames.has('filename') && propNames.has('contenttype') && propNames.has('length');
+
+  if (isIFormFile) {
+    // The field name defaults to "file" — the actual parameter name from the C# controller.
+    // NSwag doesn't preserve it in the decomposed schema, so we use the conventional name.
+    return { isFileUpload: true, fieldName: 'file' };
   }
 
   return undefined;
