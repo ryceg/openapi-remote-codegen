@@ -1,0 +1,78 @@
+name: Release
+
+# Publishes both packages when a GitHub Release is published (tag vX.Y.Z).
+# Each job is idempotent: if the version in the manifest is already on the
+# registry, that job skips publishing instead of failing. This lets you tag
+# historical versions (e.g. v0.2.0, already on npm) without errors.
+#
+# Authentication uses OIDC Trusted Publishing — no long-lived tokens or API
+# keys are stored as secrets. One-time trust setup is documented in RELEASING.md.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  npm:
+    name: Publish openapi-remote-codegen to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC: trusted publishing + provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      - name: Upgrade npm (trusted publishing needs npm >= 11.5)
+        run: npm install -g npm@latest
+      - name: Publish (skip if version already on npm)
+        working-directory: packages/codegen
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "openapi-remote-codegen@${VERSION}" version >/dev/null 2>&1; then
+            echo "openapi-remote-codegen@${VERSION} already published — skipping."
+            exit 0
+          fi
+          echo "Publishing openapi-remote-codegen@${VERSION}"
+          npm publish --access public --provenance
+
+  dotnet:
+    name: Publish OpenApiRemoteCodegen.Attributes to NuGet
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC: NuGet trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Pack
+        working-directory: attributes/dotnet
+        run: dotnet pack -c Release -o ./artifacts
+      - name: NuGet login (OIDC trusted publishing)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - name: Push (skip if version already on NuGet)
+        working-directory: attributes/dotnet
+        run: |
+          VERSION=$(sed -n 's|.*<Version>\([^<]*\)</Version>.*|\1|p' OpenApi.Remote.Attributes.csproj | head -1)
+          FEED="https://api.nuget.org/v3-flatcontainer/openapiremotecodegen.attributes/index.json"
+          if curl -sf "$FEED" | grep -q "\"${VERSION}\""; then
+            echo "OpenApiRemoteCodegen.Attributes ${VERSION} already published — skipping."
+            exit 0
+          fi
+          echo "Publishing OpenApiRemoteCodegen.Attributes ${VERSION}"
+          dotnet nuget push ./artifacts/*.nupkg \
+            --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate

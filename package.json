@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.12.1",
   "scripts": {
     "build": "pnpm --filter openapi-remote-codegen build",
     "test": "pnpm --filter openapi-remote-codegen test"
