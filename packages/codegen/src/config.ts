@@ -11,13 +11,32 @@ export interface ImportPaths {
   zod: string;
 }
 
+/**
+ * The remote-function kind a catch block is being generated for. SvelteKit
+ * forbids `redirect(...)` inside `command()` and `form()` handlers — they must
+ * return a result and let the client navigate. Queries may redirect freely.
+ */
+export type RemoteKind = 'query' | 'command' | 'form';
+
 export interface ErrorHandling {
-  /** Code to execute on 401. Has access to `url` (current URL). Default: redirect to /auth/login */
-  on401: string;
+  /**
+   * Code to execute on 401. Has access to `url` (current URL).
+   *
+   * Accepts a string (used in every catch block) or a function that receives
+   * the {@link RemoteKind} and returns kind-specific code. Default: queries
+   * redirect to `/auth/login`; commands and forms throw `error(401)` because
+   * SvelteKit rejects redirects from those handlers at runtime.
+   */
+  on401: string | ((kind: RemoteKind) => string);
   /** Code to execute on 403. Default: error(403, 'Forbidden') */
   on403: string;
   /** Function that takes a human-readable function name and returns code for 500. */
   on500: (functionName: string) => string;
+}
+
+/** Resolve {@link ErrorHandling.on401} to a string for a given remote kind. */
+export function resolveOn401(handler: ErrorHandling['on401'], kind: RemoteKind): string {
+  return typeof handler === 'function' ? handler(kind) : handler;
 }
 
 export interface GeneratorConfig {
@@ -53,7 +72,10 @@ const DEFAULT_IMPORTS: ImportPaths = {
 };
 
 const DEFAULT_ERROR_HANDLING: ErrorHandling = {
-  on401: 'const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`)',
+  on401: (kind) =>
+    kind === 'query'
+      ? 'const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`)'
+      : "throw error(401, 'Unauthorized')",
   on403: "throw error(403, 'Forbidden')",
   on500: (functionName: string) => `throw error(500, 'Failed to ${functionName}')`,
 };

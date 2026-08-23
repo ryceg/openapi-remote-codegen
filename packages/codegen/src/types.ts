@@ -40,12 +40,22 @@ export interface OperationInfo {
   isFileUpload?: boolean;
   /** The form field name for file upload (e.g., "file") */
   fileFieldName?: string;
+  /** Whether this operation uses application/x-www-form-urlencoded (not multipart/form-data) */
+  isUrlEncoded?: boolean;
+  /** Property names and types for url-encoded request bodies */
+  urlEncodedProperties?: UrlEncodedProperty[];
   responseSchema?: string;
   isVoidResponse: boolean;
   /** Whether this query should use query.batch() for N+1 prevention */
   isBatch?: boolean;
   summary?: string;
   clientPropertyName?: string;
+}
+
+export interface UrlEncodedProperty {
+  name: string;
+  type: string;
+  required: boolean;
 }
 
 export interface ParsedSpec {

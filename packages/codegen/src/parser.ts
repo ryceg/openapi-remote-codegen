@@ -1,5 +1,5 @@
 import type { OpenAPIV3 } from 'openapi-types';
-import type { OperationInfo, InlineRequestBody, ParsedSpec, ParameterInfo, RemoteType } from './types.js';
+import type { OperationInfo, InlineRequestBody, ParsedSpec, ParameterInfo, RemoteType, UrlEncodedProperty } from './types.js';
 
 // Extended operation type to include our custom extensions
 type OperationWithExtensions = OpenAPIV3.OperationObject & {
@@ -42,6 +42,9 @@ export function parseOpenApiSpec(spec: OpenAPIV3.Document): ParsedSpec {
       // Detect multipart/form-data file uploads (NSwag decomposes IFormFile into metadata properties)
       const fileUploadResult = parseFileUpload(operation.requestBody as OpenAPIV3.RequestBodyObject | undefined);
 
+      // Detect application/x-www-form-urlencoded (e.g., OAuth endpoints)
+      const urlEncodedResult = parseUrlEncodedBody(operation.requestBody as OpenAPIV3.RequestBodyObject | undefined);
+
       // Check success response codes in priority order (200, 201, 202)
       const responseSchema =
         parseResponse(operation.responses?.['200'] as OpenAPIV3.ResponseObject | undefined) ??
@@ -66,6 +69,8 @@ export function parseOpenApiSpec(spec: OpenAPIV3.Document): ParsedSpec {
         inlineRequestBody: requestBodyResult?.inline,
         isFileUpload: fileUploadResult?.isFileUpload,
         fileFieldName: fileUploadResult?.fieldName,
+        isUrlEncoded: urlEncodedResult?.isUrlEncoded,
+        urlEncodedProperties: urlEncodedResult?.properties,
         responseSchema,
         isVoidResponse,
         isBatch,
@@ -329,6 +334,41 @@ function parseFileUpload(body: OpenAPIV3.RequestBodyObject | undefined): { isFil
   }
 
   return undefined;
+}
+
+/**
+ * Detect application/x-www-form-urlencoded request bodies.
+ *
+ * When an endpoint specifies `application/x-www-form-urlencoded` (and NOT `multipart/form-data`),
+ * the generated code should use URLSearchParams instead of FormData.
+ * If both content types are present, we skip this (FormData handles both).
+ */
+function parseUrlEncodedBody(
+  body: OpenAPIV3.RequestBodyObject | undefined
+): { isUrlEncoded: boolean; properties: UrlEncodedProperty[] } | undefined {
+  if (!body?.content?.['application/x-www-form-urlencoded']?.schema) return undefined;
+
+  // If multipart/form-data is also present, prefer FormData (it handles both)
+  if (body.content['multipart/form-data']) return undefined;
+
+  const schema = body.content['application/x-www-form-urlencoded'].schema;
+  if ('$ref' in schema) return undefined;
+
+  const schemaObj = schema as OpenAPIV3.SchemaObject;
+  const props = schemaObj.properties;
+  if (!props) return { isUrlEncoded: true, properties: [] };
+
+  const requiredSet = new Set(schemaObj.required ?? []);
+  const properties: UrlEncodedProperty[] = Object.entries(props).map(([name, propSchema]) => {
+    const prop = propSchema as OpenAPIV3.SchemaObject;
+    return {
+      name,
+      type: prop.type ?? 'string',
+      required: requiredSet.has(name),
+    };
+  });
+
+  return { isUrlEncoded: true, properties };
 }
 
 function getSchemaType(schema: OpenAPIV3.SchemaObject | undefined): string {

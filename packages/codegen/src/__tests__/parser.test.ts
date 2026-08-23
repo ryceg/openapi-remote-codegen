@@ -624,6 +624,103 @@ describe('parseOpenApiSpec', () => {
     expect(result.operations[0].isFileUpload).toBeUndefined();
   });
 
+  it('detects application/x-www-form-urlencoded request bodies', () => {
+    const spec = createSpec({
+      paths: {
+        '/api/oauth/device-approve': {
+          post: {
+            tags: ['OAuth'],
+            operationId: 'OAuth_DeviceApprove',
+            'x-remote-type': 'form',
+            requestBody: {
+              required: true,
+              content: {
+                'application/x-www-form-urlencoded': {
+                  schema: {
+                    type: 'object',
+                    required: ['user_code'],
+                    properties: {
+                      user_code: { type: 'string' },
+                      remember: { type: 'boolean' },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { '200': { description: 'OK' } },
+          } as any,
+        },
+      },
+    });
+
+    const result = parseOpenApiSpec(spec);
+    expect(result.operations[0].isUrlEncoded).toBe(true);
+    expect(result.operations[0].urlEncodedProperties).toEqual([
+      { name: 'user_code', type: 'string', required: true },
+      { name: 'remember', type: 'boolean', required: false },
+    ]);
+  });
+
+  it('does not set isUrlEncoded when multipart/form-data is also present', () => {
+    const spec = createSpec({
+      paths: {
+        '/api/form': {
+          post: {
+            tags: ['Forms'],
+            operationId: 'Forms_Submit',
+            'x-remote-type': 'form',
+            requestBody: {
+              content: {
+                'application/x-www-form-urlencoded': {
+                  schema: {
+                    type: 'object',
+                    properties: { name: { type: 'string' } },
+                  },
+                },
+                'multipart/form-data': {
+                  schema: {
+                    type: 'object',
+                    properties: { name: { type: 'string' } },
+                  },
+                },
+              },
+            },
+            responses: { '200': { description: 'OK' } },
+          } as any,
+        },
+      },
+    });
+
+    const result = parseOpenApiSpec(spec);
+    expect(result.operations[0].isUrlEncoded).toBeUndefined();
+  });
+
+  it('does not set isUrlEncoded for application/json bodies', () => {
+    const spec = createSpec({
+      paths: {
+        '/api/v4/trackers': {
+          post: {
+            tags: ['V4 Trackers'],
+            operationId: 'Trackers_Create',
+            'x-remote-type': 'command',
+            parameters: [],
+            requestBody: {
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Request' },
+                },
+              },
+            },
+            responses: { '200': { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/Dto' } } } } },
+          } as any,
+        },
+      },
+    });
+
+    const result = parseOpenApiSpec(spec);
+    expect(result.operations[0].isUrlEncoded).toBeUndefined();
+  });
+
   it('isBatch is false for command endpoints even with x-remote-batch', () => {
     const spec = createSpec({
       paths: {

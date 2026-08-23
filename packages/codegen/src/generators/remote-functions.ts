@@ -1,4 +1,5 @@
-import type { GeneratorConfig } from '../config.js';
+import type { GeneratorConfig, RemoteKind } from '../config.js';
+import { resolveOn401 } from '../config.js';
 import type { OperationInfo, ParameterInfo, ParsedSpec } from '../types.js';
 import {
   operationIdToFunctionName,
@@ -116,7 +117,8 @@ function generateTagFile(tag: string, operations: OperationInfo[], config: Gener
     const hasPathParams = op.parameters.some(p => p.in === 'path');
     const hasQueryParams = op.parameters.some(p => p.in === 'query');
     const hasInlineBody = op.inlineRequestBody !== undefined;
-    return hasPathParams || hasQueryParams || op.isArrayBody || hasInlineBody;
+    const hasUrlEncodedProps = op.isUrlEncoded && (op.urlEncodedProperties?.length ?? 0) > 0;
+    return hasPathParams || hasQueryParams || op.isArrayBody || hasInlineBody || hasUrlEncodedProps;
   });
   const usesZodForForms = hasForm || usesZod;
   const zodImportLine = usesZodForForms ? `import { z } from '${config.imports.zod}';\n` : '';
@@ -144,6 +146,10 @@ function generateFunction(op: OperationInfo, tag: string, allOpsInTag: Operation
     return generateFileUploadFunction(op, functionName, clientProperty, tag, allOpsInTag, config);
   }
 
+  if (op.isUrlEncoded) {
+    return generateUrlEncodedFunction(op, functionName, clientProperty, tag, allOpsInTag, config);
+  }
+
   if (op.remoteType === 'query') {
     if (op.isBatch) {
       return generateBatchQueryFunction(op, functionName, clientProperty, methodName, config);
@@ -156,11 +162,18 @@ function generateFunction(op: OperationInfo, tag: string, allOpsInTag: Operation
   }
 }
 
-function generateCatchBlock(config: GeneratorConfig, clientProperty: string, methodName: string, functionName: string): string {
+function generateCatchBlock(
+  config: GeneratorConfig,
+  clientProperty: string,
+  methodName: string,
+  functionName: string,
+  kind: RemoteKind,
+): string {
   const humanName = functionName.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
+  const on401 = resolveOn401(config.errorHandling.on401, kind);
   return `  } catch (err) {
     const status = (err as any)?.status;
-    if (status === 401) { ${config.errorHandling.on401}; }
+    if (status === 401) { ${on401}; }
     if (status === 403) ${config.errorHandling.on403};
     console.error('Error in ${clientProperty}.${methodName}:', err);
     ${config.errorHandling.on500(humanName)};
@@ -180,7 +193,7 @@ function generateQueryFunction(
 ): string {
   const { schemaArg, paramList, apiCallArgs } = buildParameterMapping(op);
   const comment = op.summary ? `/** ${op.summary} */\n` : '';
-  const catchBlock = generateCatchBlock(config, clientProperty, methodName, functionName);
+  const catchBlock = generateCatchBlock(config, clientProperty, methodName, functionName, 'query');
   const clientAccess = generateClientAccess(config);
 
   if (schemaArg) {
@@ -209,7 +222,7 @@ function generateBatchQueryFunction(
 ): string {
   const { schemaArg, paramList, apiCallArgs } = buildParameterMapping(op);
   const comment = op.summary ? `/** ${op.summary} */\n` : '';
-  const catchBlock = generateCatchBlock(config, clientProperty, methodName, functionName);
+  const catchBlock = generateCatchBlock(config, clientProperty, methodName, functionName, 'query');
   const clientAccess = generateClientAccess(config);
 
   if (schemaArg) {
@@ -287,7 +300,7 @@ function generateMutationFunction(
     : '';
 
   const comment = op.summary ? `/** ${op.summary} */\n` : '';
-  const catchBlock = generateCatchBlock(config, clientProperty, methodName, functionName);
+  const catchBlock = generateCatchBlock(config, clientProperty, methodName, functionName, wrapperName);
   const clientAccess = generateClientAccess(config);
 
   // Handle void responses (204 No Content)
@@ -336,7 +349,7 @@ function generateFileUploadFunction(
 ): string {
   const wrapperName = op.remoteType === 'form' ? 'form' : 'command';
   const comment = op.summary ? `/** ${op.summary} */\n` : '';
-  const catchBlock = generateCatchBlock(config, clientProperty, functionName, functionName);
+  const catchBlock = generateCatchBlock(config, clientProperty, functionName, functionName, wrapperName);
   const fieldName = op.fileFieldName ?? 'file';
 
   // Build invalidation calls (same as regular mutations)
@@ -388,6 +401,104 @@ function generateFileUploadFunction(
   const apiClient = ${config.clientAccess};
   try {
 ${apiCall}
+${catchBlock}
+});`;
+}
+
+/**
+ * Generate a function for application/x-www-form-urlencoded endpoints.
+ *
+ * These endpoints (e.g., OAuth device flow per RFC 8628) require URLSearchParams
+ * instead of FormData. The generated code builds URLSearchParams from the request
+ * body properties and uses the API client's internal HTTP client to POST directly.
+ */
+function generateUrlEncodedFunction(
+  op: OperationInfo,
+  functionName: string,
+  clientProperty: string,
+  tag: string,
+  allOpsInTag: OperationInfo[],
+  config: GeneratorConfig
+): string {
+  const wrapperName = op.remoteType === 'form' ? 'form' : 'command';
+  const comment = op.summary ? `/** ${op.summary} */\n` : '';
+  const catchBlock = generateCatchBlock(config, clientProperty, functionName, functionName, wrapperName);
+  const properties = op.urlEncodedProperties ?? [];
+
+  // Build invalidation calls (same as regular mutations)
+  const invalidations = op.invalidates.map(inv => {
+    const resolved = resolveInvalidation(inv, tag);
+    return resolved.functionName;
+  });
+  const localFunctionNames = new Set(allOpsInTag.map(o => operationIdToFunctionName(o.operationId)));
+  const localInvalidations = invalidations.filter(fn => localFunctionNames.has(fn));
+  const refreshCallsArr = localInvalidations.map(fn => `${fn}(undefined).refresh()`);
+  const refreshCalls = refreshCallsArr.length > 0
+    ? `\n    await Promise.all([
+      ${refreshCallsArr.join(',\n      ')}
+    ]);`
+    : '';
+
+  // Build URLSearchParams body
+  const paramSetters = properties.map(p =>
+    `    body.set('${p.name}', String(request.${p.name}));`
+  ).join('\n');
+
+  const bodyBlock = properties.length > 0
+    ? `    const body = new URLSearchParams();
+${paramSetters}`
+    : `    const body = new URLSearchParams();`;
+
+  const method = op.method.toUpperCase();
+
+  const responseHandling = op.isVoidResponse
+    ? `${refreshCalls}
+    return { success: true };`
+    : `const result = await response.json();${refreshCalls}
+    return result;`;
+
+  const fetchBlock = `${bodyBlock}
+    const event = getRequestEvent();
+    const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    const host = event.request.headers.get('host');
+    if (host) headers['X-Forwarded-Host'] = host;
+    const cookie = event.request.headers.get('cookie');
+    if (cookie) headers['Cookie'] = cookie;
+    const response = await event.fetch(apiClient.baseUrl + '${op.path}', {
+      method: '${method}',
+      headers,
+      body: body.toString(),
+    });
+    if (!response.ok) {
+      const err: any = new Error(\`Request failed (\${response.status})\`);
+      err.status = response.status;
+      throw err;
+    }
+    ${responseHandling}`;
+
+  // Build Zod schema for form validation if properties exist
+  if (properties.length > 0) {
+    const zodFields = properties.map(p => {
+      const zodType = p.type === 'boolean' ? 'z.boolean()' :
+                      p.type === 'number' || p.type === 'integer' ? 'z.number()' :
+                      'z.string()';
+      return `${p.name}: ${zodType}${p.required ? '' : '.optional()'}`;
+    });
+    const schemaArg = `z.object({ ${zodFields.join(', ')} })`;
+    const schemaArgStr = wrapperName === 'form' ? `formCoerce(${schemaArg}) as any` : schemaArg;
+
+    return `${comment}export const ${functionName} = ${wrapperName}(${schemaArgStr}, async (request) => {
+  const apiClient = ${config.clientAccess};
+  try {
+${fetchBlock}
+${catchBlock}
+});`;
+  }
+
+  return `${comment}export const ${functionName} = ${wrapperName}(async () => {
+  const apiClient = ${config.clientAccess};
+  try {
+${fetchBlock}
 ${catchBlock}
 });`;
 }

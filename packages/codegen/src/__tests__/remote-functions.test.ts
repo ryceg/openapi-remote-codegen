@@ -83,7 +83,7 @@ describe('generateRemoteFunctions', () => {
   });
 
   describe('auth error handling in command functions', () => {
-    it('includes 401 redirect in no-arg command catch block', () => {
+    it('uses error(401) instead of redirect in no-arg command catch block', () => {
       const parsed: ParsedSpec = {
         operations: [createOperation({
           operationId: 'Foods_SyncAll',
@@ -95,11 +95,12 @@ describe('generateRemoteFunctions', () => {
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
-      expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
+      expect(content).toContain("if (status === 401) { throw error(401, 'Unauthorized'); }");
+      expect(content).not.toContain("redirect(302");
       expect(content).toContain("if (status === 403) throw error(403, 'Forbidden');");
     });
 
-    it('includes 401 redirect in parameterized command catch block', () => {
+    it('uses error(401) instead of redirect in parameterized command catch block', () => {
       const parsed: ParsedSpec = {
         operations: [createOperation({
           operationId: 'Foods_DeleteFood',
@@ -112,7 +113,8 @@ describe('generateRemoteFunctions', () => {
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
-      expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
+      expect(content).toContain("if (status === 401) { throw error(401, 'Unauthorized'); }");
+      expect(content).not.toContain("redirect(302");
       expect(content).toContain("if (status === 403) throw error(403, 'Forbidden');");
     });
 
@@ -366,6 +368,184 @@ describe('generateRemoteFunctions', () => {
 
       const content = getGeneratedFile(parsed, 'avatars.generated.remote.ts');
       expect(content).toContain('= form(async (file: File)');
+    });
+  });
+
+  describe('url-encoded functions', () => {
+    it('generates URLSearchParams for url-encoded endpoints', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_DeviceApprove',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/api/oauth/device-approve',
+          remoteType: 'form',
+          isUrlEncoded: true,
+          urlEncodedProperties: [
+            { name: 'user_code', type: 'string', required: true },
+            { name: 'remember', type: 'boolean', required: false },
+          ],
+          isVoidResponse: true,
+        })],
+        tags: ['OAuth'],
+      };
+
+      const content = getGeneratedFile(parsed, 'oauths.generated.remote.ts');
+      expect(content).toContain('new URLSearchParams()');
+      expect(content).toContain("body.set('user_code', String(request.user_code))");
+      expect(content).toContain("body.set('remember', String(request.remember))");
+      expect(content).toContain("'Content-Type': 'application/x-www-form-urlencoded'");
+      expect(content).toContain('body.toString()');
+    });
+
+    it('does not use FormData for url-encoded endpoints', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_DeviceApprove',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/api/oauth/device-approve',
+          remoteType: 'command',
+          isUrlEncoded: true,
+          urlEncodedProperties: [
+            { name: 'user_code', type: 'string', required: true },
+          ],
+          isVoidResponse: true,
+        })],
+        tags: ['OAuth'],
+      };
+
+      const content = getGeneratedFile(parsed, 'oauths.generated.remote.ts');
+      expect(content).not.toContain('new FormData()');
+    });
+
+    it('generates JSON response parsing for non-void url-encoded endpoints', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_DeviceToken',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/api/oauth/device-token',
+          remoteType: 'command',
+          isUrlEncoded: true,
+          urlEncodedProperties: [
+            { name: 'device_code', type: 'string', required: true },
+          ],
+          isVoidResponse: false,
+        })],
+        tags: ['OAuth'],
+      };
+
+      const content = getGeneratedFile(parsed, 'oauths.generated.remote.ts');
+      expect(content).toContain('await response.json()');
+      expect(content).toContain('return result');
+    });
+
+    it('generates { success: true } for void url-encoded endpoints', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_DeviceApprove',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/api/oauth/device-approve',
+          remoteType: 'command',
+          isUrlEncoded: true,
+          urlEncodedProperties: [
+            { name: 'user_code', type: 'string', required: true },
+          ],
+          isVoidResponse: true,
+        })],
+        tags: ['OAuth'],
+      };
+
+      const content = getGeneratedFile(parsed, 'oauths.generated.remote.ts');
+      expect(content).toContain("return { success: true }");
+      expect(content).not.toContain('await response.json()');
+    });
+
+    it('uses correct HTTP method from operation', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_DeviceApprove',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/api/oauth/device-approve',
+          remoteType: 'command',
+          isUrlEncoded: true,
+          urlEncodedProperties: [],
+          isVoidResponse: true,
+        })],
+        tags: ['OAuth'],
+      };
+
+      const content = getGeneratedFile(parsed, 'oauths.generated.remote.ts');
+      expect(content).toContain("method: 'POST'");
+    });
+
+    it('generates Zod schema for url-encoded properties', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_DeviceApprove',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/api/oauth/device-approve',
+          remoteType: 'form',
+          isUrlEncoded: true,
+          urlEncodedProperties: [
+            { name: 'user_code', type: 'string', required: true },
+            { name: 'remember', type: 'boolean', required: false },
+          ],
+          isVoidResponse: true,
+        })],
+        tags: ['OAuth'],
+      };
+
+      const content = getGeneratedFile(parsed, 'oauths.generated.remote.ts');
+      expect(content).toContain('z.object({');
+      expect(content).toContain('user_code: z.string()');
+      expect(content).toContain('remember: z.boolean().optional()');
+    });
+
+    it('uses form wrapper when remoteType is form', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_DeviceApprove',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/api/oauth/device-approve',
+          remoteType: 'form',
+          isUrlEncoded: true,
+          urlEncodedProperties: [
+            { name: 'user_code', type: 'string', required: true },
+          ],
+          isVoidResponse: true,
+        })],
+        tags: ['OAuth'],
+      };
+
+      const content = getGeneratedFile(parsed, 'oauths.generated.remote.ts');
+      expect(content).toContain('= form(');
+    });
+
+    it('uses command wrapper when remoteType is command', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_DeviceApprove',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/api/oauth/device-approve',
+          remoteType: 'command',
+          isUrlEncoded: true,
+          urlEncodedProperties: [
+            { name: 'user_code', type: 'string', required: true },
+          ],
+          isVoidResponse: true,
+        })],
+        tags: ['OAuth'],
+      };
+
+      const content = getGeneratedFile(parsed, 'oauths.generated.remote.ts');
+      expect(content).toContain('= command(');
     });
   });
 

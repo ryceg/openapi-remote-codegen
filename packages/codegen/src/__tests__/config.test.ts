@@ -34,7 +34,11 @@ describe('resolveConfig', () => {
 
   it('provides default error handling functions', () => {
     const config = resolveConfig({});
-    expect(config.errorHandling.on401).toContain('redirect');
+    expect(typeof config.errorHandling.on401).toBe('function');
+    const on401Fn = config.errorHandling.on401 as (kind: string) => string;
+    expect(on401Fn('query')).toContain('redirect');
+    expect(on401Fn('command')).toContain("error(401");
+    expect(on401Fn('form')).toContain("error(401");
     expect(config.errorHandling.on403).toContain('Forbidden');
     expect(typeof config.errorHandling.on500).toBe('function');
     expect(config.errorHandling.on500('doThing')).toContain('doThing');
