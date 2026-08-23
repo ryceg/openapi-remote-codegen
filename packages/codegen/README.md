@@ -118,6 +118,33 @@ export const createFood = command(async (data: CreateFoodDto) => {
 }, { invalidates: [getFavorites] });
 ```
 
+### Example: File Upload
+
+Operations whose request body is `multipart/form-data` carrying an `IFormFile` always
+generate a `form()` remote, whatever `x-remote-type` they declare. A `command()` cannot
+carry a file: its arguments are devalue-serialised, and devalue throws on a `File` in the
+browser before any request is sent. Callers submit a `<form>` with a file input named
+after the field (`file` by default).
+
+```ts
+export const upload = form('unchecked', async (data: { file?: File }) => {
+  const apiClient = getRequestEvent().locals.apiClient;
+  const submitted = data.file;
+  if (!submitted) throw error(400, 'No file was submitted');
+  // A submitted file arrives as SvelteKit's lazy proxy, which multipart encoders
+  // reject; read it into a real File before attaching it.
+  const file = new File([await submitted.arrayBuffer()], submitted.name, { type: submitted.type });
+  // ... builds FormData and POSTs it through the API client's HTTP client
+});
+```
+
+```svelte
+<form {...upload}>
+  <input type="file" name="file" />
+  <button>Upload</button>
+</form>
+```
+
 ## Programmatic API
 
 The package also exports its core pipeline for integration into build tools or custom workflows:
