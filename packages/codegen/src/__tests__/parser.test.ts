@@ -740,4 +740,136 @@ describe('parseOpenApiSpec', () => {
     const result = parseOpenApiSpec(spec);
     expect(result.operations[0].isBatch).toBe(false);
   });
+  it('binds an array of primitives as an inline body (bulk operations taking Guid[])', () => {
+    const spec = createSpec({
+      paths: {
+        '/api/v4/trackers/bulk-restore': {
+          post: {
+            tags: ['V4 Trackers'],
+            operationId: 'Trackers_BulkRestore',
+            'x-remote-type': 'command',
+            parameters: [],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { type: 'array', items: { type: 'string', format: 'uuid' } },
+                },
+              },
+            },
+            responses: { '204': { description: 'No content' } },
+          } as any,
+        },
+      },
+    });
+
+    const op = parseOpenApiSpec(spec).operations[0];
+    expect(op.inlineRequestBody).toEqual({
+      zodSchema: 'z.array(z.string())',
+      tsType: 'string[]',
+      emptyValue: '[]',
+    });
+    expect(op.requestBodySchema).toBe('');
+    expect(op.isArrayBody).toBe(false);
+    expect(op.requestBodyRequired).toBe(true);
+  });
+
+  it('maps each primitive item type in an array body', () => {
+    const cases: [OpenAPIV3.SchemaObject, string, string][] = [
+      [{ type: 'integer' }, 'z.array(z.number())', 'number[]'],
+      [{ type: 'number' }, 'z.array(z.number())', 'number[]'],
+      [{ type: 'boolean' }, 'z.array(z.boolean())', 'boolean[]'],
+      [{ type: 'string', format: 'date-time' }, 'z.array(z.coerce.date())', 'Date[]'],
+    ];
+
+    for (const [items, zodSchema, tsType] of cases) {
+      const spec = createSpec({
+        paths: {
+          '/api/v4/things/bulk': {
+            post: {
+              tags: ['V4 Things'],
+              operationId: 'Things_Bulk',
+              'x-remote-type': 'command',
+              parameters: [],
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'array', items } } },
+              },
+              responses: { '204': { description: 'No content' } },
+            } as any,
+          },
+        },
+      });
+
+      const op = parseOpenApiSpec(spec).operations[0];
+      expect(op.inlineRequestBody).toEqual({ zodSchema, tsType, emptyValue: '[]' });
+    }
+  });
+
+  it('leaves an array of non-primitive, non-$ref items unbound', () => {
+    const spec = createSpec({
+      paths: {
+        '/api/v4/things/bulk': {
+          post: {
+            tags: ['V4 Things'],
+            operationId: 'Things_Bulk',
+            'x-remote-type': 'command',
+            parameters: [],
+            requestBody: {
+              required: true,
+              content: {
+                'application/json': {
+                  schema: { type: 'array', items: { type: 'object', properties: {} } },
+                },
+              },
+            },
+            responses: { '204': { description: 'No content' } },
+          } as any,
+        },
+      },
+    });
+
+    const op = parseOpenApiSpec(spec).operations[0];
+    expect(op.inlineRequestBody).toBeUndefined();
+    expect(op.requestBodySchema).toBeUndefined();
+  });
+
+  it('binds dictionary bodies to the value type the client declares', () => {
+    const cases: [OpenAPIV3.SchemaObject | boolean, string, string][] = [
+      [{ type: 'string' }, 'z.record(z.string(), z.string())', '{ [key: string]: string; }'],
+      [{ type: 'integer' }, 'z.record(z.string(), z.number())', '{ [key: string]: number; }'],
+      [{ type: 'boolean' }, 'z.record(z.string(), z.boolean())', '{ [key: string]: boolean; }'],
+      [
+        { type: 'string', format: 'date-time' },
+        'z.record(z.string(), z.coerce.date())',
+        '{ [key: string]: Date; }',
+      ],
+      [true, 'z.record(z.string(), z.unknown())', '{ [key: string]: any; }'],
+    ];
+
+    for (const [additionalProperties, zodSchema, tsType] of cases) {
+      const spec = createSpec({
+        paths: {
+          '/api/v4/settings': {
+            put: {
+              tags: ['V4 Settings'],
+              operationId: 'Settings_Replace',
+              'x-remote-type': 'command',
+              parameters: [],
+              requestBody: {
+                required: true,
+                content: {
+                  'application/json': { schema: { type: 'object', additionalProperties } },
+                },
+              },
+              responses: { '204': { description: 'No content' } },
+            } as any,
+          },
+        },
+      });
+
+      const op = parseOpenApiSpec(spec).operations[0];
+      expect(op.inlineRequestBody).toEqual({ zodSchema, tsType });
+    }
+  });
 });
