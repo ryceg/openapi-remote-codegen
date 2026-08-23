@@ -305,8 +305,8 @@ describe('generateRemoteFunctions', () => {
       };
 
       const content = getGeneratedFile(parsed, 'avatars.generated.remote.ts');
-      expect(content).toContain('async (file: File)');
-      expect(content).toContain("formData.append('file', file)");
+      expect(content).toContain("form('unchecked', async (data: { file?: File })");
+      expect(content).toContain("formData.append('file', file, file.name)");
       expect(content).toContain('await response.json()');
       expect(content).toContain('return result');
     });
@@ -327,7 +327,7 @@ describe('generateRemoteFunctions', () => {
       };
 
       const content = getGeneratedFile(parsed, 'avatars.generated.remote.ts');
-      expect(content).toContain('async (file: File)');
+      expect(content).toContain("form('unchecked', async (data: { file?: File })");
       expect(content).toContain("return { success: true }");
       expect(content).not.toContain('await response.json()');
     });
@@ -351,7 +351,7 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain("apiClient.baseUrl + '/api/v4/alert-sounds'");
     });
 
-    it('uses form wrapper when remoteType is form', () => {
+    it('uses a form wrapper for a command-typed upload, because a command cannot carry a File', () => {
       const parsed: ParsedSpec = {
         operations: [createOperation({
           operationId: 'Avatar_Upload',
@@ -367,7 +367,89 @@ describe('generateRemoteFunctions', () => {
       };
 
       const content = getGeneratedFile(parsed, 'avatars.generated.remote.ts');
-      expect(content).toContain('= form(async (file: File)');
+      expect(content).toContain("= form('unchecked',");
+    });
+
+    it('materialises the submitted lazy file and rejects an empty submission', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Avatar_Upload',
+          tag: 'Avatar',
+          method: 'post',
+          path: '/api/v4/me/avatar',
+          remoteType: 'command',
+          isFileUpload: true,
+          fileFieldName: 'file',
+          isVoidResponse: true,
+        })],
+        tags: ['Avatar'],
+      };
+
+      const content = getGeneratedFile(parsed, 'avatars.generated.remote.ts');
+      expect(content).toContain("if (!submitted) throw error(400, 'No file was submitted');");
+      expect(content).toContain(
+        'const file = new File([await submitted.arrayBuffer()], submitted.name, { type: submitted.type });'
+      );
+    });
+
+    it('names the file field from fileFieldName', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Sounds_UploadSound',
+          tag: 'Sounds',
+          method: 'post',
+          path: '/api/v4/alert-sounds',
+          remoteType: 'command',
+          isFileUpload: true,
+          fileFieldName: 'sound',
+          isVoidResponse: true,
+        })],
+        tags: ['Sounds'],
+      };
+
+      const content = getGeneratedFile(parsed, 'sounds.generated.remote.ts');
+      expect(content).toContain("form('unchecked', async (data: { sound?: File })");
+      expect(content).toContain('const submitted = data.sound;');
+      expect(content).toContain("formData.append('sound', file, file.name)");
+    });
+
+    it('imports form and not command for a command-typed upload', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Avatar_Upload',
+          tag: 'Avatar',
+          method: 'post',
+          path: '/api/v4/me/avatar',
+          remoteType: 'command',
+          isFileUpload: true,
+          fileFieldName: 'file',
+          isVoidResponse: true,
+        })],
+        tags: ['Avatar'],
+      };
+
+      const content = getGeneratedFile(parsed, 'avatars.generated.remote.ts');
+      expect(content).toContain("import { getRequestEvent, form } from '$app/server';");
+      expect(content).not.toContain('formCoerce');
+    });
+
+    it('does not emit the formCoerce utility for a spec whose only forms are uploads', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Avatar_Upload',
+          tag: 'Avatar',
+          method: 'post',
+          path: '/api/v4/me/avatar',
+          remoteType: 'form',
+          isFileUpload: true,
+          fileFieldName: 'file',
+          isVoidResponse: true,
+        })],
+        tags: ['Avatar'],
+      };
+
+      const files = generateRemoteFunctions(parsed, defaultConfig);
+      expect(files.has('form-utils.generated.ts')).toBe(false);
     });
   });
 
