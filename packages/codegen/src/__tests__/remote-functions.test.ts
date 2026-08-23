@@ -577,4 +577,82 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain('container.resolve("ApiClient")');
     });
   });
+  describe('inline request bodies', () => {
+    it('binds an array-of-primitives body and forwards it to the client', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({
+            operationId: 'Foods_BulkRestore',
+            method: 'post',
+            path: '/api/v4/foods/bulk-restore',
+            remoteType: 'command',
+            requestBodySchema: '',
+            requestBodyRequired: true,
+            inlineRequestBody: {
+              zodSchema: 'z.array(z.string())',
+              tsType: 'string[]',
+              emptyValue: '[]',
+            },
+            isVoidResponse: true,
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('command(z.array(z.string()), async (request)');
+      expect(content).toContain('bulkRestore(request as string[])');
+    });
+
+    it('defaults an omitted optional array body to [] rather than {}', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({
+            operationId: 'Foods_BulkRestore',
+            method: 'post',
+            path: '/api/v4/foods/bulk-restore',
+            remoteType: 'command',
+            requestBodySchema: '',
+            requestBodyRequired: false,
+            inlineRequestBody: {
+              zodSchema: 'z.array(z.string())',
+              tsType: 'string[]',
+              emptyValue: '[]',
+            },
+            isVoidResponse: true,
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('command(z.array(z.string()).optional(), async (request)');
+      expect(content).toContain('bulkRestore((request ?? []) as string[])');
+      expect(content).not.toContain('(request ?? {}) as string[]');
+    });
+
+    it('still defaults an omitted optional dictionary body to {}', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({
+            operationId: 'Foods_ReplaceSettings',
+            method: 'put',
+            path: '/api/v4/foods/settings',
+            remoteType: 'command',
+            requestBodySchema: '',
+            requestBodyRequired: false,
+            inlineRequestBody: {
+              zodSchema: 'z.record(z.string(), z.string())',
+              tsType: '{ [key: string]: string; }',
+            },
+            isVoidResponse: true,
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('replaceSettings((request ?? {}) as { [key: string]: string; })');
+    });
+  });
 });

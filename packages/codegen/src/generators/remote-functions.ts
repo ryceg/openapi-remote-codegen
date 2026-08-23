@@ -570,7 +570,7 @@ function buildParameterMapping(op: OperationInfo): {
     const bodyOptional = !op.requestBodyRequired;
     const schemaArg = bodyOptional ? `${inline.zodSchema}.optional()` : inline.zodSchema;
     const requestArg = bodyOptional
-      ? `(request ?? {}) as ${inline.tsType}`
+      ? `(request ?? ${inline.emptyValue ?? '{}'}) as ${inline.tsType}`
       : `request as ${inline.tsType}`;
     return {
       schemaArg,
@@ -613,7 +613,7 @@ function buildParameterMapping(op: OperationInfo): {
       ? `request: ${inline.zodSchema}.optional()`
       : `request: ${inline.zodSchema}`;
     const requestArg = bodyOptional
-      ? `(request ?? {}) as ${inline.tsType}`
+      ? `(request ?? ${inline.emptyValue ?? '{}'}) as ${inline.tsType}`
       : `request as ${inline.tsType}`;
     const paramNames = pathParams.map(p => p.name);
     return {

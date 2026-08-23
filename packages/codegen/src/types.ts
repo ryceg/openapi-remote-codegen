@@ -21,6 +21,11 @@ export interface InlineRequestBody {
   zodSchema: string;
   /** TypeScript type for the NSwag client cast (e.g., "{ [key: string]: string; }") */
   tsType: string;
+  /**
+   * Expression substituted for an omitted optional body. Defaults to `{}`;
+   * array bodies set `[]` so the cast to their TS type stays sound.
+   */
+  emptyValue?: string;
 }
 
 export interface OperationInfo {

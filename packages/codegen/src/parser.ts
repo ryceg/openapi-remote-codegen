@@ -224,6 +224,21 @@ function parseRequestBody(body: OpenAPIV3.RequestBodyObject | undefined): Reques
       const itemName = items.$ref.split('/').pop();
       return itemName ? { schema: `${itemName}Schema`, isArray: true, required } : undefined;
     }
+
+    // Arrays of primitives (e.g., Guid[]) have no named schema to import, so they bind inline.
+    const item = resolvePrimitiveSchema(items as OpenAPIV3.SchemaObject);
+    if (item) {
+      return {
+        schema: '',
+        isArray: false,
+        required,
+        inline: {
+          zodSchema: `z.array(${item.zodSchema})`,
+          tsType: `${item.tsType}[]`,
+          emptyValue: '[]',
+        },
+      };
+    }
   }
 
   // Handle inline object schemas (e.g., Dictionary<string, string> -> { type: "object", additionalProperties: ... })
@@ -243,42 +258,46 @@ function parseRequestBody(body: OpenAPIV3.RequestBodyObject | undefined): Reques
  */
 function resolveInlineObjectSchema(schema: OpenAPIV3.SchemaObject): InlineRequestBody | undefined {
   const additionalProps = schema.additionalProperties;
-  if (!additionalProps || additionalProps === true) {
-    // additionalProperties: true or {} -> Record<string, unknown>
+  const unknownRecord: InlineRequestBody = {
+    zodSchema: 'z.record(z.string(), z.unknown())',
+    tsType: '{ [key: string]: any; }',
+  };
+
+  // additionalProperties: true or {} -> Record<string, unknown>
+  if (!additionalProps || additionalProps === true) return unknownRecord;
+
+  if (typeof additionalProps === 'object' && !('$ref' in additionalProps)) {
+    const value = resolvePrimitiveSchema(additionalProps as OpenAPIV3.SchemaObject);
+    if (!value) return unknownRecord;
     return {
-      zodSchema: 'z.record(z.string(), z.unknown())',
-      tsType: '{ [key: string]: any; }',
+      zodSchema: `z.record(z.string(), ${value.zodSchema})`,
+      tsType: `{ [key: string]: ${value.tsType}; }`,
     };
   }
 
-  if (typeof additionalProps === 'object' && !('$ref' in additionalProps)) {
-    const valueSchema = additionalProps as OpenAPIV3.SchemaObject;
-    switch (valueSchema.type) {
-      case 'string':
-        return {
-          zodSchema: 'z.record(z.string(), z.string())',
-          tsType: '{ [key: string]: string; }',
-        };
-      case 'number':
-      case 'integer':
-        return {
-          zodSchema: 'z.record(z.string(), z.number())',
-          tsType: '{ [key: string]: number; }',
-        };
-      case 'boolean':
-        return {
-          zodSchema: 'z.record(z.string(), z.boolean())',
-          tsType: '{ [key: string]: boolean; }',
-        };
-      default:
-        return {
-          zodSchema: 'z.record(z.string(), z.unknown())',
-          tsType: '{ [key: string]: any; }',
-        };
-    }
-  }
-
   return undefined;
+}
+
+/**
+ * Convert a primitive OpenAPI schema to a Zod schema and the TypeScript type the
+ * generated NSwag client declares for it. Returns undefined for anything that is
+ * not a primitive, so callers can fall back to their own handling.
+ */
+function resolvePrimitiveSchema(
+  schema: OpenAPIV3.SchemaObject
+): { zodSchema: string; tsType: string } | undefined {
+  switch (getSchemaType(schema)) {
+    case 'string':
+      return { zodSchema: 'z.string()', tsType: 'string' };
+    case 'number':
+      return { zodSchema: 'z.number()', tsType: 'number' };
+    case 'boolean':
+      return { zodSchema: 'z.boolean()', tsType: 'boolean' };
+    case 'Date':
+      return { zodSchema: 'z.coerce.date()', tsType: 'Date' };
+    default:
+      return undefined;
+  }
 }
 
 function parseResponse(response: OpenAPIV3.ResponseObject | undefined): string | undefined {
