@@ -31,6 +31,13 @@
     "typescript"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryceg/openapi-remote-codegen.git",
+    "directory": "packages/codegen"
+  },
+  "homepage": "https://github.com/ryceg/openapi-remote-codegen#readme",
+  "bugs": "https://github.com/ryceg/openapi-remote-codegen/issues",
   "dependencies": {
     "openapi-types": "^12.1.3"
   },
