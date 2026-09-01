@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { operationIdToFunctionName, tagToFileName, resolveInvalidation } from '../utils/naming.js';
+import { operationIdToFunctionName, tagToFileName } from '../utils/naming.js';
 
 describe('operationIdToFunctionName', () => {
   it('strips tag prefix and camelCases', () => {
@@ -50,19 +50,5 @@ describe('tagToFileName', () => {
 
   it('handles sibilant ending (x)', () => {
     expect(tagToFileName('Box')).toBe('boxes');
-  });
-});
-
-describe('resolveInvalidation', () => {
-  it('resolves simple name within current tag', () => {
-    const result = resolveInvalidation('GetDefinitions', 'Trackers');
-    expect(result.functionName).toBe('getDefinitions');
-    expect(result.fromTag).toBe('Trackers');
-  });
-
-  it('resolves cross-tag operationId', () => {
-    const result = resolveInvalidation('Trackers_GetActiveInstances', 'Notes');
-    expect(result.functionName).toBe('getActiveInstances');
-    expect(result.fromTag).toBe('Trackers');
   });
 });

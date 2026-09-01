@@ -10,8 +10,16 @@ public class RemoteCommandAttribute : Attribute
     /// <summary>
     /// Operation names of queries to invalidate after this command succeeds.
     /// Use short names for same-domain (e.g., "GetNotes") or full operationId
-    /// for cross-domain (e.g., "Trackers_GetActiveInstances").
+    /// for cross-domain (e.g., "Trackers_GetActiveInstances"); a cross-domain
+    /// target is imported into the generated file.
     /// </summary>
+    /// <remarks>
+    /// Query caches are keyed per argument, so a declaration here refreshes the
+    /// one key the generator can name — the no-argument key, or the path
+    /// parameters this command shares with the query. A subscription passing
+    /// query parameters holds a different key; the call site reaches it by
+    /// passing the query function to <c>.updates()</c>.
+    /// </remarks>
     public string[] Invalidates { get; set; } = [];
 
     /// <summary>

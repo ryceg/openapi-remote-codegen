@@ -223,6 +223,138 @@ describe('generateRemoteFunctions', () => {
       expect(content).not.toContain('invalid');
     });
 
+    it('routes refreshes through refreshInvalidated rather than awaiting them raw', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({ operationId: 'Foods_GetFavorites', remoteType: 'query' }),
+          createOperation({
+            operationId: 'Foods_AddFavorite',
+            remoteType: 'command',
+            requestBodySchema: 'AddFavoriteRequestSchema',
+            invalidates: ['GetFavorites'],
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+
+      // A refresh runs after the write has landed, so it must not be able to
+      // reject the command and report the write as failed.
+      expect(content).toContain("await refreshInvalidated('addFavorite', [");
+      expect(content).not.toContain('await Promise.all([');
+      expect(content).toContain(
+        "import { refreshInvalidated } from './invalidation.generated.js';"
+      );
+    });
+
+    it('emits the invalidation helper module, which cannot reject', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({ operationId: 'Foods_GetFavorites', remoteType: 'query' }),
+          createOperation({
+            operationId: 'Foods_AddFavorite',
+            remoteType: 'command',
+            requestBodySchema: 'AddFavoriteRequestSchema',
+            invalidates: ['GetFavorites'],
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'invalidation.generated.ts');
+      expect(content).toContain('export async function refreshInvalidated');
+      expect(content).toContain('Promise.allSettled');
+    });
+
+    it('omits the invalidation helper module when nothing invalidates', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+
+      const files = generateRemoteFunctions(parsed, defaultConfig);
+      expect(files.has('invalidation.generated.ts')).toBe(false);
+    });
+
+    it('refreshes every cached argument key alongside the fixed key', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({
+            operationId: 'Foods_GetFavorites',
+            remoteType: 'query',
+            parameters: [{ name: 'count', in: 'query', required: false, type: 'integer' }],
+          }),
+          createOperation({
+            operationId: 'Foods_AddFavorite',
+            remoteType: 'command',
+            requestBodySchema: 'AddFavoriteRequestSchema',
+            invalidates: ['GetFavorites'],
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+
+      // The fixed key only reaches a subscription passing no argument; a
+      // subscription passing { count: 100 } is a different key entirely.
+      expect(content).toContain('() => getFavorites(undefined).refresh()');
+      expect(content).toContain('() => requested(getFavorites, Infinity).refreshAll()');
+      expect(content).toContain("import { getRequestEvent, query, command, requested } from '$app/server';");
+    });
+
+    it('imports a query another tag declares instead of dropping the invalidation', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({
+            operationId: 'MemberInvite_GetMembers',
+            tag: 'V4 Member Invites',
+            remoteType: 'query',
+            clientPropertyName: 'memberInvites',
+          }),
+          createOperation({
+            operationId: 'Tenant_RemoveMember',
+            tag: 'V4 Tenant',
+            remoteType: 'command',
+            clientPropertyName: 'tenant',
+            requestBodySchema: 'RemoveMemberRequestSchema',
+            invalidates: ['MemberInvite_GetMembers'],
+          }),
+        ],
+        tags: ['V4 Member Invites', 'V4 Tenant'],
+      };
+
+      const content = getGeneratedFile(parsed, 'tenants.generated.remote.ts');
+      expect(content).toContain(
+        "import { getMembers } from './memberInvites.generated.remote.js';"
+      );
+      expect(content).toContain('() => getMembers(undefined).refresh()');
+    });
+
+    it('passes a path parameter the mutation shares with the query', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({
+            operationId: 'Foods_GetById',
+            remoteType: 'query',
+            parameters: [{ name: 'id', in: 'path', required: true, type: 'string' }],
+          }),
+          createOperation({
+            operationId: 'Foods_Update',
+            remoteType: 'command',
+            parameters: [{ name: 'id', in: 'path', required: true, type: 'string' }],
+            requestBodySchema: 'UpdateFoodRequestSchema',
+            invalidates: ['GetById'],
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('() => getById(id).refresh()');
+    });
+
     it('includes refresh calls in form functions', () => {
       const parsed: ParsedSpec = {
         operations: [

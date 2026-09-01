@@ -124,14 +124,76 @@ A bare method name like `"GetDefinitions"` resolves within the **same tag** as t
 
 ### Fully-qualified name (cross-tag resolution)
 
-A value containing an underscore like `"Trackers_GetActiveInstances"` is split on `_`. The prefix identifies the tag; the suffix becomes the function name.
+A value containing an underscore like `"Trackers_GetActiveInstances"` is a full
+`operationId` and is looked up against the spec. It may name a query under any tag.
 
-| Invalidation value               | Resolved function      | Resolved tag |
-|----------------------------------|------------------------|--------------|
-| `"Trackers_GetActiveInstances"`  | `getActiveInstances`   | `Trackers`   |
-| `"Foods_GetFavorites"`           | `getFavorites`         | `Foods`      |
+| Invalidation value               | Resolved function      | Resolved from |
+|----------------------------------|------------------------|---------------|
+| `"Trackers_GetActiveInstances"`  | `getActiveInstances`   | the tag the spec gives that operation |
+| `"MemberInvite_GetMembers"`      | `getMembers`           | the tag the spec gives that operation |
 
-Cross-tag invalidations are only emitted in the generated code when the target function exists in the **same output file** as the mutation. If it resolves to a different file, the invalidation is currently skipped.
+The target's tag comes from the operation the spec declares, not from the prefix.
+A prefix is a controller name, while the tag decides the output file
+(`V4 Member Invites` becomes `memberInvites.generated.remote.ts`), and the two
+disagree often enough that reading the prefix would drop the reference.
+
+When the target lives in another file, the generated file imports it:
+
+```ts
+import { getMembers } from './memberInvites.generated.remote.js';
+```
+
+An imported name is aliased (`getMembers as memberInvites_getMembers`) only when it
+would collide with a function the file declares or with another import.
+
+A name that resolves to nothing, or to an operation that is not a query, is skipped —
+only a query can be refreshed.
+
+## What a mutation refreshes
+
+Query caches are keyed **per argument**, so one mutation emits up to two refreshes per
+target:
+
+```ts
+await refreshInvalidated('update', [
+  () => getBodyWeights(undefined).refresh(),
+  () => requested(getBodyWeights, Infinity).refreshAll()
+]);
+```
+
+- The **fixed key** the generator can name on its own. It is emitted when the query
+  takes no path parameters (naming the no-argument key), or when the mutation can
+  supply every path parameter the query takes, matched by name. A query keyed by path
+  *and* query parameters together gets no fixed-key refresh, because the mutation
+  cannot know the query half.
+- `requested(fn, Infinity).refreshAll()`, which refreshes every cached key the client
+  asked for. This is the only way to reach a subscription that passes arguments the
+  mutation knows nothing about: `getBodyWeights({ count: 100, skip: 0 })` is not the
+  key `getBodyWeights(undefined)` names. Call sites opt in by passing the query
+  *function* to `.updates()`:
+
+  ```ts
+  await updateBodyWeight({ id, request }).updates(getBodyWeights);
+  ```
+
+  It costs nothing when the client asked for nothing, and the refreshed data rides
+  back in the mutation's own response rather than in a second round-trip.
+
+`.updates()` cannot be emitted by the generator — it is a method on the client-side
+mutation promise, and the server wrapper throws if it is called there.
+
+### Failure of a refresh never fails the mutation
+
+`refreshInvalidated` (emitted into `invalidation.generated.ts`) runs the refreshes under
+`Promise.allSettled`, so it cannot reject. A refresh runs only once the write has landed;
+letting it reject would report a write that succeeded as failed — with a convincing reason
+belonging to a different operation — and invite a retry that duplicates a non-idempotent
+command.
+
+Nothing is lost by swallowing there: SvelteKit awaits each refresh itself when it
+serializes the response and reports a failed one against the query that failed, so the
+subscription that went stale surfaces its own error while the mutation reports its own
+outcome.
 
 ## Tag-to-File Mapping
 
