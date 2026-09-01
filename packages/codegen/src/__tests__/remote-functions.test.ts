@@ -152,6 +152,34 @@ describe('generateRemoteFunctions', () => {
     });
   });
 
+  describe('error handling imports', () => {
+    it('emits import lines the arms depend on', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+
+      const content = generateRemoteFunctions(parsed, resolveConfig({
+        errorHandling: {
+          imports: ["import { parseErrorBody } from '$lib/api/error-body';"],
+          on403: 'throw error(403, parseErrorBody(err)?.detail ?? \'Forbidden\')',
+        },
+      })).get('foods.generated.remote.ts')!;
+
+      expect(content).toContain("import { parseErrorBody } from '$lib/api/error-body';");
+    });
+
+    it('emits none by default', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).not.toContain('error-body');
+    });
+  });
+
   describe('catch block ordering', () => {
     it('places auth checks before console.error in query', () => {
       const parsed: ParsedSpec = {

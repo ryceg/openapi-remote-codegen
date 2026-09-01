@@ -183,6 +183,9 @@ function generateTagFile(
   const kitImports = ['error', 'redirect'];
 
   const formCoerceImport = usesFormCoerce ? `import { formCoerce } from './form-utils.generated.js';\n` : '';
+  const errorHandlingImports = config.errorHandling.imports.length > 0
+    ? `${config.errorHandling.imports.join('\n')}\n`
+    : '';
   const invalidationImport = invalidation.usesRequested
     ? `import { refreshInvalidated } from './invalidation.generated.js';\n`
     : '';
@@ -196,7 +199,7 @@ function generateTagFile(
 
 import { ${serverImports.join(', ')} } from '${config.imports.server}';
 import { ${kitImports.join(', ')} } from '${config.imports.kit}';
-${zodImportLine}${formCoerceImport}${invalidationImport}${crossTagImports}${schemaImportLine}${apiImportLine}
+${zodImportLine}${errorHandlingImports}${formCoerceImport}${invalidationImport}${crossTagImports}${schemaImportLine}${apiImportLine}
 ${functions}
 `;
 }

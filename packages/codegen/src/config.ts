@@ -36,6 +36,12 @@ export interface ErrorHandling {
   on403: string;
   /** Function that takes a human-readable function name and returns code for 500. */
   on500: (functionName: string) => string;
+  /**
+   * Import lines emitted into every generated remote file, for helpers the arms
+   * call. The arms are code spliced into a catch block, so anything they name
+   * beyond `err` and `status` has to be imported here.
+   */
+  imports: string[];
 }
 
 /** Resolve {@link ErrorHandling.on401} to a string for a given remote kind. */
@@ -82,6 +88,7 @@ const DEFAULT_ERROR_HANDLING: ErrorHandling = {
       : "throw error(401, 'Unauthorized')",
   on403: "throw error(403, 'Forbidden')",
   on500: (functionName: string) => `throw error(500, 'Failed to ${functionName}')`,
+  imports: [],
 };
 
 const DEFAULTS: GeneratorConfig = {
