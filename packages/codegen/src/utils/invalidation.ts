@@ -29,15 +29,13 @@ export interface FileInvalidationPlan {
 /**
  * Resolve one `Invalidates` entry to the query it names.
  *
- * A bare name ("GetNotes") names a query in the declaring operation's own tag.
- * A qualified name ("Trackers_GetActiveInstances") is a full operationId and may
- * name a query under any tag. The target's tag is read off the operation the spec
- * declares rather than off the prefix: a prefix is the C# controller name, while
- * the tag is what decides the generated file ("V4 Member Invites" -> memberInvites),
- * and the two disagree often enough that guessing drops the reference.
+ * A bare name ("GetNotes") names a query in the declaring operation's own tag; a
+ * qualified one ("Trackers_GetActiveInstances") is a full operationId and may name
+ * a query under any tag. The target's tag comes from the operation the spec
+ * declares, never from the prefix: the prefix is a controller name while the tag
+ * decides the file ("V4 Member Invites" -> memberInvites), and they routinely differ.
  *
- * Only queries resolve. A command cannot be refreshed, so naming one is a
- * declaration error rather than something to emit an uncallable `.refresh()` for.
+ * Only a query resolves, since only a query can be refreshed.
  */
 export function resolveInvalidationTarget(
   invalidate: string,
@@ -63,9 +61,8 @@ export function resolveInvalidationTarget(
  * Resolve every `Invalidates` declaration in one tag, and name the queries that
  * live elsewhere.
  *
- * An imported name is aliased only when it would collide — with a function the
- * file declares itself, or with another import — so the common case stays
- * readable and the ambiguous case stays unambiguous.
+ * An imported name is aliased only when it would collide, with a function the
+ * file declares itself or with another import.
  */
 export function planFileInvalidations(
   tag: string,
@@ -138,22 +135,14 @@ export function planFileInvalidations(
 }
 
 /**
- * The refresh expressions for one mutation, as thunks for
- * `refreshInvalidated` to run.
+ * The refresh expressions for one mutation, as thunks for `refreshInvalidated`.
  *
- * Each target contributes up to two, because they cover different cache keys:
- *
- * - A **fixed-key** `fn(arg).refresh()`, emitted only when the mutation can
- *   supply every path parameter the query takes. It refreshes the one key the
- *   generator can name without the client's help, so a subscription that passes
- *   exactly that argument updates whether or not the call site opted in.
- * - `requested(fn, Infinity).refreshAll()`, which refreshes every *cached* key
- *   the client asked for by passing the query function to `.updates()`. Query
- *   keys are per-argument, so this is the only way a mutation can reach a
- *   subscription that passes query parameters the mutation knows nothing about
- *   — `getBodyWeights({ count: 100, skip: 0 })` is not the key
- *   `getBodyWeights(undefined)` names. It costs nothing when the client asked
- *   for nothing.
+ * A query cache is keyed per argument, so each target needs two: the key the
+ * generator can name unaided (see {@link fixedKeyArgument}), and every key the
+ * client asked for by passing the query function to `.updates()`.
+ * `getBodyWeights({ count: 100 })` is not the key `getBodyWeights(undefined)`
+ * names, and only the client knows it holds the first. `refreshAll` is free when
+ * the client asked for nothing.
  */
 export function refreshThunks(
   declaringOp: OperationInfo,
@@ -178,23 +167,13 @@ export function refreshThunks(
 
 /**
  * The argument a fixed-key refresh passes the query, or undefined when the
- * mutation cannot name a key the client would actually hold.
+ * mutation cannot name a key anything would be holding.
  *
- * The expression has to be what the query's own generated signature accepts, so
- * this mirrors the shapes `buildParameterMapping` emits:
- *
- * - No parameters, or query parameters only — the query's argument is optional,
- *   so `undefined` names the key held by a subscription that passes no argument.
- *   Subscriptions that do pass query parameters are the argument gap that
- *   `requested(...).refreshAll()` covers.
- * - One path parameter and nothing else — passed bare.
- * - Several path parameters and nothing else — passed as an object.
- *
- * A query taking path parameters is keyed by them, so the mutation must supply
- * every one from its own path parameters, matched by name; supplying only some
- * would refresh a key nobody holds. A query mixing path and query parameters is
- * keyed by both together, and the mutation cannot know the query half, so it
- * gets no fixed-key refresh at all.
+ * The branches mirror the argument shapes `buildParameterMapping` gives a query,
+ * since the call has to satisfy the signature it generated. Partial path
+ * parameters are refused rather than guessed: a key assembled from some of them
+ * belongs to no subscription. A query keyed by path *and* query parameters is
+ * refused for the same reason — the mutation cannot know the query half.
  */
 function fixedKeyArgument(
   target: OperationInfo,

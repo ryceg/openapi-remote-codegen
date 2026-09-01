@@ -26,16 +26,18 @@ export function generateRemoteFunctions(parsed: ParsedSpec, config: GeneratorCon
     fileContents.set('form-utils.generated.ts', generateFormUtilsFile(config));
   }
 
-  const anyTagInvalidates = parsed.operations.some(op => op.invalidates.length > 0);
-  if (anyTagInvalidates) {
-    fileContents.set('invalidation.generated.ts', generateInvalidationUtilsFile());
+  // Generate file for each tag
+  let anyTagRefreshes = false;
+  for (const [tag, operations] of byTag) {
+    const invalidation = planFileInvalidations(tag, operations, parsed.operations);
+    anyTagRefreshes ||= invalidation.usesRequested;
+
+    const fileName = `${tagToFileName(tag)}.generated.remote.ts`;
+    fileContents.set(fileName, generateTagFile(operations, tag, invalidation, config));
   }
 
-  // Generate file for each tag
-  for (const [tag, operations] of byTag) {
-    const fileName = `${tagToFileName(tag)}.generated.remote.ts`;
-    const content = generateTagFile(tag, operations, parsed.operations, config);
-    fileContents.set(fileName, content);
+  if (anyTagRefreshes) {
+    fileContents.set('invalidation.generated.ts', generateInvalidationUtilsFile());
   }
 
   // Generate barrel export (pass operations to detect name collisions)
@@ -78,20 +80,13 @@ function generateInvalidationUtilsFile(): string {
 // Shared utilities for on-invalidate query refreshes
 
 /**
- * The shared helper every mutation with an \`Invalidates\` declaration calls.
+ * Runs a mutation's refreshes without being able to reject.
  *
- * It is separate from the mutation's own \`try\` on purpose. A refresh runs only
- * once the write has already landed, so its failure — an expired session, a
- * revoked read scope, a transient 500 — must never reject the mutation: that
- * would report a write that succeeded as failed, and with a convincing reason
- * belonging to a different operation, prompting a retry that duplicates a
- * non-idempotent command. \`Promise.allSettled\` makes the block unable to
- * reject, whatever a refresh does.
- *
- * Nothing is lost by swallowing here. SvelteKit awaits each refresh itself when
- * it serializes the response and reports a failed one against the query that
- * failed, so the subscription that went stale surfaces its own error while the
- * mutation reports its own outcome.
+ * A refresh runs only once the write has landed, so a rejection escaping here
+ * would report a succeeded write as failed — with a reason belonging to another
+ * operation — and invite a retry that duplicates a non-idempotent command.
+ * Swallowing costs nothing: SvelteKit awaits each refresh when it serializes the
+ * response and reports a failed one against the query that failed.
  */
 export async function refreshInvalidated(
   operation: string,
@@ -109,12 +104,11 @@ export async function refreshInvalidated(
 }
 
 function generateTagFile(
-  tag: string,
   operations: OperationInfo[],
-  allOperations: OperationInfo[],
+  tag: string,
+  invalidation: FileInvalidationPlan,
   config: GeneratorConfig,
 ): string {
-  const invalidation = planFileInvalidations(tag, operations, allOperations);
   const schemaImports = new Set<string>();
   const typeImports = new Set<string>();
   const enumImports = new Set<string>();
@@ -235,10 +229,7 @@ function generateFunction(
   }
 }
 
-/**
- * The refresh statement a mutation runs after a successful write, or '' when it
- * declares no `Invalidates`.
- */
+/** The refresh statement for one mutation, or '' when nothing resolved. */
 function generateRefreshCalls(
   op: OperationInfo,
   functionName: string,
