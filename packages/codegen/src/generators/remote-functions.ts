@@ -262,7 +262,7 @@ function generateCatchBlock(
   return `  } catch (err) {
     const status = (err as any)?.status;
     if (status === 401) { ${on401}; }
-    if (status === 403) ${config.errorHandling.on403};
+    if (status === 403) { ${config.errorHandling.on403}; }
     console.error('Error in ${clientProperty}.${methodName}:', err);
     ${config.errorHandling.on500(humanName)};
   }`;

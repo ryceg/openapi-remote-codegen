@@ -53,7 +53,7 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
-      expect(content).toContain("if (status === 403) throw error(403, 'Forbidden');");
+      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
     });
 
     it('includes 401 redirect in parameterized query catch block', () => {
@@ -68,7 +68,7 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
-      expect(content).toContain("if (status === 403) throw error(403, 'Forbidden');");
+      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
     });
 
     it('preserves existing error(500) fallback in query', () => {
@@ -97,7 +97,7 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { throw error(401, 'Unauthorized'); }");
       expect(content).not.toContain("redirect(302");
-      expect(content).toContain("if (status === 403) throw error(403, 'Forbidden');");
+      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
     });
 
     it('uses error(401) instead of redirect in parameterized command catch block', () => {
@@ -115,7 +115,7 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { throw error(401, 'Unauthorized'); }");
       expect(content).not.toContain("redirect(302");
-      expect(content).toContain("if (status === 403) throw error(403, 'Forbidden');");
+      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
     });
 
     it('preserves existing error(500) fallback in command', () => {
@@ -134,6 +134,24 @@ describe('generateRemoteFunctions', () => {
     });
   });
 
+  describe('403 arm', () => {
+    it('emits the arm inside a block so it can span statements', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+
+      // An arm that has to inspect the thrown value before deciding — parsing an
+      // unparsed error body, say — needs more than one statement under the guard.
+      const content = generateRemoteFunctions(parsed, resolveConfig({
+        errorHandling: { on403: "const reason = 'nope';\n    throw error(403, reason)" },
+      })).get('foods.generated.remote.ts')!;
+
+      expect(content).toContain("if (status === 403) { const reason = 'nope';");
+      expect(content).toContain('    throw error(403, reason); }');
+    });
+  });
+
   describe('catch block ordering', () => {
     it('places auth checks before console.error in query', () => {
       const parsed: ParsedSpec = {
@@ -144,7 +162,7 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       const statusIndex = content.indexOf("const status = (err as any)?.status;");
       const redirectIndex = content.indexOf("if (status === 401) {");
-      const forbiddenIndex = content.indexOf("if (status === 403) throw error(403, 'Forbidden');");
+      const forbiddenIndex = content.indexOf("if (status === 403) {");
       const consoleIndex = content.indexOf("console.error('Error in foodsV4.getFavorites:', err);");
       const error500Index = content.indexOf("throw error(500, 'Failed to get favorites');");
 
@@ -167,7 +185,7 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       const statusIndex = content.indexOf("const status = (err as any)?.status;");
       const redirectIndex = content.indexOf("if (status === 401) {");
-      const forbiddenIndex = content.indexOf("if (status === 403) throw error(403, 'Forbidden');");
+      const forbiddenIndex = content.indexOf("if (status === 403) {");
       const consoleIndex = content.indexOf("console.error('Error in foodsV4.syncAll:', err);");
       const error500Index = content.indexOf("throw error(500, 'Failed to sync all');");
 
