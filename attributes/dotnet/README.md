@@ -49,7 +49,9 @@ public async Task<byte[]> GetRawData() { ... }
 
 Marks an endpoint as a write operation. The codegen generates a `command()` wrapper.
 
-Use `Invalidates` to specify which queries should be refreshed after the command succeeds. Short names resolve within the same tag; use the full `Tag_OperationId` form for cross-tag invalidation.
+Use `Invalidates` to specify which queries should be refreshed after the command succeeds. Short names resolve within the same tag; use the full `Tag_OperationId` form for cross-tag invalidation, which the generated file reaches by importing it.
+
+Query caches are keyed per argument, so a declaration refreshes the one key the generator can name. A call site whose subscription passes arguments reaches its own key by passing the query function to `.updates()`. See [Invalidation Resolution](../../docs/extension-spec.md#invalidation-resolution).
 
 ```csharp
 [RemoteCommand(Invalidates = new[] { "GetFavorites" })]

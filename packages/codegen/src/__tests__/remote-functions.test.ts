@@ -53,7 +53,7 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
-      expect(content).toContain("if (status === 403) throw error(403, 'Forbidden');");
+      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
     });
 
     it('includes 401 redirect in parameterized query catch block', () => {
@@ -68,7 +68,7 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
-      expect(content).toContain("if (status === 403) throw error(403, 'Forbidden');");
+      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
     });
 
     it('preserves existing error(500) fallback in query', () => {
@@ -97,7 +97,7 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { throw error(401, 'Unauthorized'); }");
       expect(content).not.toContain("redirect(302");
-      expect(content).toContain("if (status === 403) throw error(403, 'Forbidden');");
+      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
     });
 
     it('uses error(401) instead of redirect in parameterized command catch block', () => {
@@ -115,7 +115,7 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { throw error(401, 'Unauthorized'); }");
       expect(content).not.toContain("redirect(302");
-      expect(content).toContain("if (status === 403) throw error(403, 'Forbidden');");
+      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
     });
 
     it('preserves existing error(500) fallback in command', () => {
@@ -134,6 +134,52 @@ describe('generateRemoteFunctions', () => {
     });
   });
 
+  describe('403 arm', () => {
+    it('emits the arm inside a block so it can span statements', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+
+      // An arm that has to inspect the thrown value before deciding — parsing an
+      // unparsed error body, say — needs more than one statement under the guard.
+      const content = generateRemoteFunctions(parsed, resolveConfig({
+        errorHandling: { on403: "const reason = 'nope';\n    throw error(403, reason)" },
+      })).get('foods.generated.remote.ts')!;
+
+      expect(content).toContain("if (status === 403) { const reason = 'nope';");
+      expect(content).toContain('    throw error(403, reason); }');
+    });
+  });
+
+  describe('error handling imports', () => {
+    it('emits import lines the arms depend on', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+
+      const content = generateRemoteFunctions(parsed, resolveConfig({
+        errorHandling: {
+          imports: ["import { parseErrorBody } from '$lib/api/error-body';"],
+          on403: 'throw error(403, parseErrorBody(err)?.detail ?? \'Forbidden\')',
+        },
+      })).get('foods.generated.remote.ts')!;
+
+      expect(content).toContain("import { parseErrorBody } from '$lib/api/error-body';");
+    });
+
+    it('emits none by default', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).not.toContain('error-body');
+    });
+  });
+
   describe('catch block ordering', () => {
     it('places auth checks before console.error in query', () => {
       const parsed: ParsedSpec = {
@@ -144,7 +190,7 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       const statusIndex = content.indexOf("const status = (err as any)?.status;");
       const redirectIndex = content.indexOf("if (status === 401) {");
-      const forbiddenIndex = content.indexOf("if (status === 403) throw error(403, 'Forbidden');");
+      const forbiddenIndex = content.indexOf("if (status === 403) {");
       const consoleIndex = content.indexOf("console.error('Error in foodsV4.getFavorites:', err);");
       const error500Index = content.indexOf("throw error(500, 'Failed to get favorites');");
 
@@ -167,7 +213,7 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       const statusIndex = content.indexOf("const status = (err as any)?.status;");
       const redirectIndex = content.indexOf("if (status === 401) {");
-      const forbiddenIndex = content.indexOf("if (status === 403) throw error(403, 'Forbidden');");
+      const forbiddenIndex = content.indexOf("if (status === 403) {");
       const consoleIndex = content.indexOf("console.error('Error in foodsV4.syncAll:', err);");
       const error500Index = content.indexOf("throw error(500, 'Failed to sync all');");
 
@@ -221,6 +267,138 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("import { error, redirect } from '@sveltejs/kit'");
       expect(content).not.toContain('invalid');
+    });
+
+    it('routes refreshes through refreshInvalidated rather than awaiting them raw', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({ operationId: 'Foods_GetFavorites', remoteType: 'query' }),
+          createOperation({
+            operationId: 'Foods_AddFavorite',
+            remoteType: 'command',
+            requestBodySchema: 'AddFavoriteRequestSchema',
+            invalidates: ['GetFavorites'],
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+
+      // A refresh runs after the write has landed, so it must not be able to
+      // reject the command and report the write as failed.
+      expect(content).toContain("await refreshInvalidated('addFavorite', [");
+      expect(content).not.toContain('await Promise.all([');
+      expect(content).toContain(
+        "import { refreshInvalidated } from './invalidation.generated.js';"
+      );
+    });
+
+    it('emits the invalidation helper module, which cannot reject', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({ operationId: 'Foods_GetFavorites', remoteType: 'query' }),
+          createOperation({
+            operationId: 'Foods_AddFavorite',
+            remoteType: 'command',
+            requestBodySchema: 'AddFavoriteRequestSchema',
+            invalidates: ['GetFavorites'],
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'invalidation.generated.ts');
+      expect(content).toContain('export async function refreshInvalidated');
+      expect(content).toContain('Promise.allSettled');
+    });
+
+    it('omits the invalidation helper module when nothing invalidates', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+
+      const files = generateRemoteFunctions(parsed, defaultConfig);
+      expect(files.has('invalidation.generated.ts')).toBe(false);
+    });
+
+    it('refreshes every cached argument key alongside the fixed key', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({
+            operationId: 'Foods_GetFavorites',
+            remoteType: 'query',
+            parameters: [{ name: 'count', in: 'query', required: false, type: 'integer' }],
+          }),
+          createOperation({
+            operationId: 'Foods_AddFavorite',
+            remoteType: 'command',
+            requestBodySchema: 'AddFavoriteRequestSchema',
+            invalidates: ['GetFavorites'],
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+
+      // The fixed key only reaches a subscription passing no argument; a
+      // subscription passing { count: 100 } is a different key entirely.
+      expect(content).toContain('() => getFavorites(undefined).refresh()');
+      expect(content).toContain('() => requested(getFavorites, Infinity).refreshAll()');
+      expect(content).toContain("import { getRequestEvent, query, command, requested } from '$app/server';");
+    });
+
+    it('imports a query another tag declares instead of dropping the invalidation', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({
+            operationId: 'MemberInvite_GetMembers',
+            tag: 'V4 Member Invites',
+            remoteType: 'query',
+            clientPropertyName: 'memberInvites',
+          }),
+          createOperation({
+            operationId: 'Tenant_RemoveMember',
+            tag: 'V4 Tenant',
+            remoteType: 'command',
+            clientPropertyName: 'tenant',
+            requestBodySchema: 'RemoveMemberRequestSchema',
+            invalidates: ['MemberInvite_GetMembers'],
+          }),
+        ],
+        tags: ['V4 Member Invites', 'V4 Tenant'],
+      };
+
+      const content = getGeneratedFile(parsed, 'tenants.generated.remote.ts');
+      expect(content).toContain(
+        "import { getMembers } from './memberInvites.generated.remote.js';"
+      );
+      expect(content).toContain('() => getMembers(undefined).refresh()');
+    });
+
+    it('passes a path parameter the mutation shares with the query', () => {
+      const parsed: ParsedSpec = {
+        operations: [
+          createOperation({
+            operationId: 'Foods_GetById',
+            remoteType: 'query',
+            parameters: [{ name: 'id', in: 'path', required: true, type: 'string' }],
+          }),
+          createOperation({
+            operationId: 'Foods_Update',
+            remoteType: 'command',
+            parameters: [{ name: 'id', in: 'path', required: true, type: 'string' }],
+            requestBodySchema: 'UpdateFoodRequestSchema',
+            invalidates: ['GetById'],
+          }),
+        ],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('() => getById(id).refresh()');
     });
 
     it('includes refresh calls in form functions', () => {

@@ -20,6 +20,10 @@ npm install -D openapi-remote-codegen
 npx openapi-remote-codegen
 ```
 
+A mutation that declares `Invalidates` emits `requested()` from `$app/server`,
+so the generated output needs a SvelteKit new enough to export it (2.59 is
+known good). Nothing else in the output depends on it.
+
 ### Backend (.NET)
 
 ```bash

@@ -11,8 +11,13 @@ public class RemoteFormAttribute : Attribute
     /// <summary>
     /// Operation names of queries to invalidate after this form succeeds.
     /// Use short names for same-domain (e.g., "GetNotes") or full operationId
-    /// for cross-domain (e.g., "Trackers_GetActiveInstances").
+    /// for cross-domain (e.g., "Trackers_GetActiveInstances"); a cross-domain
+    /// target is imported into the generated file.
     /// </summary>
+    /// <remarks>
+    /// See <see cref="RemoteCommandAttribute.Invalidates"/> for how per-argument
+    /// query keys decide what a declaration here can reach on its own.
+    /// </remarks>
     public string[] Invalidates { get; set; } = [];
 
     /// <summary>

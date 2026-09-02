@@ -1,6 +1,6 @@
 {
   "name": "openapi-remote-codegen",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "Generate type-safe SvelteKit remote functions from OpenAPI specs with x-remote-* extensions",
   "main": "dist/index.js",

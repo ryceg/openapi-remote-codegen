@@ -73,27 +73,3 @@ export function tagToFileName(tag: string): string {
   const parts = [...prefix.map(w => w.toLowerCase()), lastWord];
   return parts[0] + parts.slice(1).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
 }
-
-/**
- * Resolve invalidation targets.
- * Short names resolve within same tag, full operationIds are used as-is.
- * "GetNotes" with currentTag "Note" -> "getNotes"
- * "Trackers_GetActiveInstances" -> "getActiveInstances" (from trackers)
- */
-export function resolveInvalidation(
-  invalidate: string,
-  currentTag: string
-): { functionName: string; fromTag: string } {
-  if (invalidate.includes('_')) {
-    const [tag, ...rest] = invalidate.split('_');
-    return {
-      functionName: operationIdToFunctionName(invalidate),
-      fromTag: tag,
-    };
-  }
-
-  return {
-    functionName: invalidate.charAt(0).toLowerCase() + invalidate.slice(1),
-    fromTag: currentTag,
-  };
-}
