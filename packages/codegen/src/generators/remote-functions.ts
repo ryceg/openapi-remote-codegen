@@ -545,6 +545,16 @@ function buildParameterMapping(op: OperationInfo): {
   if (pathParams.length === 1 && queryParams.length === 0 && !hasBody) {
     const param = pathParams[0];
     const zodType = param.enumName ? `z.enum(${param.enumName})` : 'z.string()';
+    // form() handlers are invoked with an object decoded from FormData, never a
+    // bare scalar, so a top-level scalar schema can never validate and the
+    // mutation silently no-ops. Wrap it in an object keyed by the param name.
+    if (op.remoteType === 'form') {
+      return {
+        schemaArg: `z.object({ ${param.name}: ${zodType} })`,
+        paramList: `{ ${param.name} }`,
+        apiCallArgs: param.name,
+      };
+    }
     return {
       schemaArg: zodType,
       paramList: param.name,

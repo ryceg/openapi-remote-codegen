@@ -431,6 +431,41 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).not.toContain('invalid');
     });
+
+    it('wraps a lone path param in an object schema for form operations', () => {
+      // form() handlers receive an object decoded from FormData, never a bare
+      // scalar, so a top-level scalar schema could never validate.
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Foods_DeleteFavorite',
+          method: 'delete',
+          path: '/api/v4/foods/favorites/{id}',
+          remoteType: 'form',
+          parameters: [{ name: 'id', in: 'path', required: true, type: 'string' }],
+        })],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('formCoerce(z.object({ id: z.string() }))');
+      expect(content).toContain('async ({ id })');
+    });
+
+    it('keeps the bare scalar schema for command operations with a lone path param', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Foods_DeleteFavorite',
+          method: 'delete',
+          path: '/api/v4/foods/favorites/{id}',
+          remoteType: 'command',
+          parameters: [{ name: 'id', in: 'path', required: true, type: 'string' }],
+        })],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('command(z.string()');
+    });
   });
 
   describe('batch query functions', () => {
