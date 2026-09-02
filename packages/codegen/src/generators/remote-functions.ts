@@ -54,21 +54,27 @@ function generateFormUtilsFile(config: GeneratorConfig): string {
 
 import { z } from '${config.imports.zod}';
 
-/** Coerce FormData string values before Zod validation (booleans, empty → null) */
+function coerceValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(coerceValue);
+  if (typeof value === 'object' && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (entry === '') continue; // omit empty strings (nullable fields)
+      out[key] = coerceValue(entry);
+    }
+    return out;
+  }
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (value === 'on') return true;
+  return value;
+}
+
+/** Coerce FormData string values before Zod validation (booleans, arrays, empty → null) */
 export function formCoerce<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess((data: unknown) => {
     if (typeof data !== 'object' || data === null) return data;
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-      if (typeof value === 'object' && value !== null) {
-        out[key] = formCoerce(z.any()).parse(value);
-      } else if (value === 'true') out[key] = true;
-      else if (value === 'false') out[key] = false;
-      else if (value === 'on') out[key] = true;
-      else if (value === '') continue; // omit empty strings (nullable fields)
-      else out[key] = value;
-    }
-    return out;
+    return coerceValue(data);
   }, schema) as unknown as T;
 }
 `;
@@ -539,6 +545,16 @@ function buildParameterMapping(op: OperationInfo): {
   if (pathParams.length === 1 && queryParams.length === 0 && !hasBody) {
     const param = pathParams[0];
     const zodType = param.enumName ? `z.enum(${param.enumName})` : 'z.string()';
+    // form() handlers are invoked with an object decoded from FormData, never a
+    // bare scalar, so a top-level scalar schema can never validate and the
+    // mutation silently no-ops. Wrap it in an object keyed by the param name.
+    if (op.remoteType === 'form') {
+      return {
+        schemaArg: `z.object({ ${param.name}: ${zodType} })`,
+        paramList: `{ ${param.name} }`,
+        apiCallArgs: param.name,
+      };
+    }
     return {
       schemaArg: zodType,
       paramList: param.name,
