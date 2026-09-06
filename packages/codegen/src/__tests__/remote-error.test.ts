@@ -162,6 +162,20 @@ describe('emitted error translation', () => {
     });
   });
 
+  it('surfaces the reason a failed upload carried, not the thrown Error text', () => {
+    // The shape the generated upload and url-encoded paths throw on a non-ok response.
+    const err = Object.assign(new Error('Upload failed (400)'), {
+      status: 400,
+      response: JSON.stringify({ detail: 'Too large' }),
+    });
+
+    expect(remoteErrorMessage(err, 'Failed to upload')).toBe('Too large');
+    expect(thrownBy(() => translateRemoteError(err, 'Failed to upload'))).toEqual({
+      status: 400,
+      body: { message: 'Too large' },
+    });
+  });
+
   it('collapses an unforwarded status to 500 but keeps the server reason', () => {
     const err = apiException(404, JSON.stringify({ detail: 'No such tenant' }));
     expect(thrownBy(() => translateRemoteError(err, 'Failed to sign up'))).toEqual({

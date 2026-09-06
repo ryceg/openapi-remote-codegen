@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { pathToFileURL } from 'url';
 import { resolveConfig, type UserConfig } from './config.js';
 import { parseOpenApiSpec } from './parser.js';
 import { generateRemoteFunctions } from './generators/remote-functions.js';
 import { generateApiClient } from './generators/api-client.js';
+import { pruneStaleGeneratedFiles } from './utils/output.js';
 
 async function loadConfig(): Promise<UserConfig> {
   const configNames = [
@@ -71,15 +72,8 @@ async function main() {
   const remoteFunctionsDir = resolve(config.outputDir, config.remoteFunctionsOutput);
   mkdirSync(remoteFunctionsDir, { recursive: true });
 
-  // Clean up stale generated files
-  const generatedFileNames = new Set(remoteFunctions.keys());
-  if (existsSync(remoteFunctionsDir)) {
-    for (const existing of readdirSync(remoteFunctionsDir)) {
-      if (existing.endsWith('.generated.remote.ts') && !generatedFileNames.has(existing)) {
-        unlinkSync(resolve(remoteFunctionsDir, existing));
-        console.log(`  Removed stale: ${config.remoteFunctionsOutput}/${existing}`);
-      }
-    }
+  for (const removed of pruneStaleGeneratedFiles(remoteFunctionsDir, remoteFunctions.keys())) {
+    console.log(`  Removed stale: ${config.remoteFunctionsOutput}/${removed}`);
   }
 
   for (const [fileName, content] of remoteFunctions) {
