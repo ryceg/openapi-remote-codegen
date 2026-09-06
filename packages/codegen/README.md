@@ -65,12 +65,31 @@ export default defineConfig({
 | `imports` | `[]` | Import lines emitted into every remote file, for helpers the arms call |
 
 `remoteErrorMessage` and `translateRemoteError` come from `remote-error.generated.ts`,
-emitted next to the remote functions and imported automatically by any arm that names
+emitted next to the remote functions and imported automatically by any arm that calls
 them. They read the server's own reason out of the thrown value — a generated HTTP
 client hands the response body over unparsed, and puts a fixed string of its own in
-`message` — preferring, in order, `errors` (flattened), `error`, `detail`, `title`,
-`message`, then the fallback the arm passed. Overriding both arms with code that names
-neither helper suppresses the module.
+`message` — trying each place the body might be (`result`, `response`, `body`) and
+preferring, within one, `errors` (flattened), `error`, `detail`, `title`, `message`.
+`translateRemoteError` passes that reason on only with a forwarded status; every other
+status collapses to a 500 carrying the arm's fallback, so a failure the API did not
+write for the user cannot narrate itself to them. Overriding both arms with code that
+calls neither helper suppresses the module.
+
+### Upgrading to 0.7.0
+
+The **default** `on500` changed. 0.6.0 collapsed every non-401/403 status into
+`error(500, 'Failed to X')`; 0.7.0 rethrows `forwardStatuses` (400, 409, 429) under
+their own status with the message the response body carried, and the default `on403`
+now carries the body's reason rather than a bare `'Forbidden'`.
+
+Projects that override both `on403` and `on500` keep the output they had, with one
+exception: operations that generate a raw fetch (file uploads and
+`application/x-www-form-urlencoded`) now put the response body on the thrown error as
+`err.response`, and their `console.error` label names the client method rather than the
+exported function name.
+
+`@sveltejs/kit` is a peer dependency from 0.7.0 — the emitted module imports `error`
+from it, and relies on it throwing.
 
 ## CLI Flags
 
@@ -93,7 +112,7 @@ If none are found, all defaults apply.
 
 ## Generated Output
 
-The generator produces one file per OpenAPI tag (e.g., `foods.generated.remote.ts`) plus an `index.ts` barrel export, an `api-client.generated.ts` wrapper, and the shared modules the output needs (`remote-error.generated.ts`, and `form-utils.generated.ts` / `invalidation.generated.ts` when forms or invalidation are in play). Stale generated files are automatically cleaned up.
+The generator produces one file per OpenAPI tag (e.g., `foods.generated.remote.ts`) plus an `index.ts` barrel export, an `api-client.generated.ts` wrapper, and the shared modules the output needs (`remote-error.generated.ts`, and `form-utils.generated.ts` / `invalidation.generated.ts` when forms or invalidation are in play). Files a run no longer emits are deleted from the remote functions directory: any `*.generated.remote.ts`, plus those three shared modules by name. Nothing else is touched, so an output directory shared with other generators is safe.
 
 ### Example: Query
 

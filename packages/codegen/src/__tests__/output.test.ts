@@ -60,17 +60,22 @@ describe('pruneStaleGeneratedFiles', () => {
     expect(removed).toEqual(['drinks.generated.remote.ts']);
   });
 
-  it('leaves files the generator does not own', () => {
+  it('leaves generated files written by other tools', () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'remote-codegen-'));
     writeRun(dir, generateRemoteFunctions(parsed, resolveConfig({})));
+    // An output dir is shared: Zod schemas and the NSwag client are generated too,
+    // by generators that also spell their output `.generated.ts`.
+    writeFileSync(resolve(dir, 'schemas.generated.ts'), '// another generator', 'utf-8');
+    writeFileSync(resolve(dir, 'nocturne-api-client.generated.ts'), '// NSwag output', 'utf-8');
     writeFileSync(resolve(dir, 'schemas.ts'), '// hand-written', 'utf-8');
-    writeFileSync(resolve(dir, 'billing-api-client.ts'), '// NSwag output', 'utf-8');
 
-    pruneStaleGeneratedFiles(dir, generateRemoteFunctions(parsed, resolveConfig({})).keys());
+    const removed = pruneStaleGeneratedFiles(dir, generateRemoteFunctions(parsed, resolveConfig({})).keys());
 
+    expect(removed).toEqual([]);
     const remaining = readdirSync(dir);
+    expect(remaining).toContain('schemas.generated.ts');
+    expect(remaining).toContain('nocturne-api-client.generated.ts');
     expect(remaining).toContain('schemas.ts');
-    expect(remaining).toContain('billing-api-client.ts');
   });
 
   it('returns nothing for a directory that does not exist yet', () => {

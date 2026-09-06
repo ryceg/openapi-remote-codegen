@@ -15,6 +15,16 @@ import {
   remoteErrorExportsUsedBy,
 } from './remote-error.js';
 
+const FORM_UTILS_FILE = 'form-utils.generated.ts';
+const INVALIDATION_FILE = 'invalidation.generated.ts';
+
+/** The modules shared by the tag files, emitted only when something needs them. */
+export const SHARED_MODULE_FILES: readonly string[] = [
+  FORM_UTILS_FILE,
+  INVALIDATION_FILE,
+  REMOTE_ERROR_FILE,
+];
+
 export function generateRemoteFunctions(parsed: ParsedSpec, config: GeneratorConfig): Map<string, string> {
   const fileContents = new Map<string, string>();
 
@@ -29,7 +39,7 @@ export function generateRemoteFunctions(parsed: ParsedSpec, config: GeneratorCon
   // Check if any tag uses form() — if so, emit the shared formCoerce utility
   const anyTagHasForm = parsed.operations.some(op => op.remoteType === 'form' && !op.isFileUpload);
   if (anyTagHasForm) {
-    fileContents.set('form-utils.generated.ts', generateFormUtilsFile(config));
+    fileContents.set(FORM_UTILS_FILE, generateFormUtilsFile(config));
   }
 
   if (remoteErrorExportsUsedBy(config).length > 0) {
@@ -47,7 +57,7 @@ export function generateRemoteFunctions(parsed: ParsedSpec, config: GeneratorCon
   }
 
   if (anyTagRefreshes) {
-    fileContents.set('invalidation.generated.ts', generateInvalidationUtilsFile());
+    fileContents.set(INVALIDATION_FILE, generateInvalidationUtilsFile());
   }
 
   // Generate barrel export (pass operations to detect name collisions)
@@ -427,7 +437,7 @@ function generateFileUploadFunction(
     if (!response.ok) {
       const err: any = new Error(\`Upload failed (\${response.status})\`);
       err.status = response.status;
-      err.response = await response.text();
+      try { err.response = await response.text(); } catch {}
       throw err;
     }${refreshCalls}
     return { success: true };`
@@ -442,7 +452,7 @@ function generateFileUploadFunction(
     if (!response.ok) {
       const err: any = new Error(\`Upload failed (\${response.status})\`);
       err.status = response.status;
-      err.response = await response.text();
+      try { err.response = await response.text(); } catch {}
       throw err;
     }
     const result = await response.json();${refreshCalls}
@@ -514,7 +524,7 @@ ${paramSetters}`
     if (!response.ok) {
       const err: any = new Error(\`Request failed (\${response.status})\`);
       err.status = response.status;
-      err.response = await response.text();
+      try { err.response = await response.text(); } catch {}
       throw err;
     }
     ${responseHandling}`;
