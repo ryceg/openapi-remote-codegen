@@ -8,6 +8,12 @@ import {
   type FileInvalidationPlan,
 } from '../utils/invalidation.js';
 import { getClientPropertyName } from '../utils/client-mapping.js';
+import {
+  REMOTE_ERROR_FILE,
+  generateRemoteErrorFile,
+  generateRemoteErrorImport,
+  remoteErrorExportsUsedBy,
+} from './remote-error.js';
 
 export function generateRemoteFunctions(parsed: ParsedSpec, config: GeneratorConfig): Map<string, string> {
   const fileContents = new Map<string, string>();
@@ -24,6 +30,10 @@ export function generateRemoteFunctions(parsed: ParsedSpec, config: GeneratorCon
   const anyTagHasForm = parsed.operations.some(op => op.remoteType === 'form' && !op.isFileUpload);
   if (anyTagHasForm) {
     fileContents.set('form-utils.generated.ts', generateFormUtilsFile(config));
+  }
+
+  if (remoteErrorExportsUsedBy(config).length > 0) {
+    fileContents.set(REMOTE_ERROR_FILE, generateRemoteErrorFile(config));
   }
 
   // Generate file for each tag
@@ -183,6 +193,7 @@ function generateTagFile(
   const kitImports = ['error', 'redirect'];
 
   const formCoerceImport = usesFormCoerce ? `import { formCoerce } from './form-utils.generated.js';\n` : '';
+  const remoteErrorImport = generateRemoteErrorImport(config);
   const errorHandlingImports = config.errorHandling.imports.length > 0
     ? `${config.errorHandling.imports.join('\n')}\n`
     : '';
@@ -199,7 +210,7 @@ function generateTagFile(
 
 import { ${serverImports.join(', ')} } from '${config.imports.server}';
 import { ${kitImports.join(', ')} } from '${config.imports.kit}';
-${zodImportLine}${errorHandlingImports}${formCoerceImport}${invalidationImport}${crossTagImports}${schemaImportLine}${apiImportLine}
+${zodImportLine}${remoteErrorImport}${errorHandlingImports}${formCoerceImport}${invalidationImport}${crossTagImports}${schemaImportLine}${apiImportLine}
 ${functions}
 `;
 }

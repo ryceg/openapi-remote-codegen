@@ -59,8 +59,18 @@ export default defineConfig({
 | Key | Default | Description |
 |-----|---------|-------------|
 | `on401` | Redirect to `/auth/login` | Code to execute on 401 (has access to `url`) |
-| `on403` | `error(403, 'Forbidden')` | Code to execute on 403 |
-| `on500` | `error(500, 'Failed to ...')` | Function taking a human-readable name, returns code for 500 |
+| `on403` | `error(403, remoteErrorMessage(err, 'Forbidden'))` | Code to execute on 403 |
+| `on500` | `translateRemoteError(err, 'Failed to ...')` | Function taking a human-readable name, returns code for every other status |
+| `forwardStatuses` | `[400, 409, 429]` | Statuses `translateRemoteError` rethrows as themselves rather than as a 500 |
+| `imports` | `[]` | Import lines emitted into every remote file, for helpers the arms call |
+
+`remoteErrorMessage` and `translateRemoteError` come from `remote-error.generated.ts`,
+emitted next to the remote functions and imported automatically by any arm that names
+them. They read the server's own reason out of the thrown value — a generated HTTP
+client hands the response body over unparsed, and puts a fixed string of its own in
+`message` — preferring, in order, `errors` (flattened), `error`, `detail`, `title`,
+`message`, then the fallback the arm passed. Overriding both arms with code that names
+neither helper suppresses the module.
 
 ## CLI Flags
 
@@ -83,7 +93,7 @@ If none are found, all defaults apply.
 
 ## Generated Output
 
-The generator produces one file per OpenAPI tag (e.g., `foods.generated.remote.ts`) plus an `index.ts` barrel export and an `api-client.generated.ts` wrapper. Stale generated files are automatically cleaned up.
+The generator produces one file per OpenAPI tag (e.g., `foods.generated.remote.ts`) plus an `index.ts` barrel export, an `api-client.generated.ts` wrapper, and the shared modules the output needs (`remote-error.generated.ts`, and `form-utils.generated.ts` / `invalidation.generated.ts` when forms or invalidation are in play). Stale generated files are automatically cleaned up.
 
 ### Example: Query
 
@@ -91,6 +101,7 @@ The generator produces one file per OpenAPI tag (e.g., `foods.generated.remote.t
 // foods.generated.remote.ts
 import { query, getRequestEvent } from '$app/server';
 import { error, redirect } from '@sveltejs/kit';
+import { remoteErrorMessage, translateRemoteError } from './remote-error.generated.js';
 
 export const getFavorites = query(async () => {
   try {
@@ -99,8 +110,8 @@ export const getFavorites = query(async () => {
   } catch (err) {
     const status = (err as any)?.status;
     if (status === 401) { /* redirect to login */ }
-    if (status === 403) throw error(403, 'Forbidden');
-    throw error(500, 'Failed to get favorites');
+    if (status === 403) throw error(403, remoteErrorMessage(err, 'Forbidden'));
+    throw translateRemoteError(err, 'Failed to get favorites');
   }
 });
 ```

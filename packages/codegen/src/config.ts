@@ -31,11 +31,21 @@ export interface ErrorHandling {
   /**
    * Code to execute on 403. Emitted inside a block, so it may span statements —
    * an arm that has to inspect the thrown value before deciding needs the room.
-   * Default: error(403, 'Forbidden')
+   * Default: error(403, ...) carrying the server's reason when the body has one.
    */
   on403: string;
-  /** Function that takes a human-readable function name and returns code for 500. */
+  /**
+   * Function that takes a human-readable function name and returns the code for
+   * every status the 401 and 403 arms leave unhandled.
+   */
   on500: (functionName: string) => string;
+  /**
+   * Statuses the default {@link on500} arm rethrows under their own status,
+   * carrying the server's message; every other status becomes a 500. Baked into
+   * the emitted `remote-error.generated.ts`, so an arm that does not call
+   * `translateRemoteError` ignores it. Default: 400, 409, 429.
+   */
+  forwardStatuses: number[];
   /**
    * Import lines emitted into every generated remote file, for helpers the arms
    * call. The arms are code spliced into a catch block, so anything they name
@@ -86,8 +96,9 @@ const DEFAULT_ERROR_HANDLING: ErrorHandling = {
     kind === 'query'
       ? 'const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`)'
       : "throw error(401, 'Unauthorized')",
-  on403: "throw error(403, 'Forbidden')",
-  on500: (functionName: string) => `throw error(500, 'Failed to ${functionName}')`,
+  on403: "throw error(403, remoteErrorMessage(err, 'Forbidden'))",
+  on500: (functionName: string) => `throw translateRemoteError(err, 'Failed to ${functionName}')`,
+  forwardStatuses: [400, 409, 429],
   imports: [],
 };
 

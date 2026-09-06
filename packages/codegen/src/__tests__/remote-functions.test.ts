@@ -53,7 +53,7 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
-      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
+      expect(content).toContain("if (status === 403) { throw error(403, remoteErrorMessage(err, 'Forbidden')); }");
     });
 
     it('includes 401 redirect in parameterized query catch block', () => {
@@ -68,17 +68,17 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
-      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
+      expect(content).toContain("if (status === 403) { throw error(403, remoteErrorMessage(err, 'Forbidden')); }");
     });
 
-    it('preserves existing error(500) fallback in query', () => {
+    it('delegates the fallback arm to translateRemoteError in query', () => {
       const parsed: ParsedSpec = {
         operations: [createOperation()],
         tags: ['V4 Foods'],
       };
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
-      expect(content).toContain("throw error(500, 'Failed to get favorites');");
+      expect(content).toContain("throw translateRemoteError(err, 'Failed to get favorites');");
     });
   });
 
@@ -97,7 +97,7 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { throw error(401, 'Unauthorized'); }");
       expect(content).not.toContain("redirect(302");
-      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
+      expect(content).toContain("if (status === 403) { throw error(403, remoteErrorMessage(err, 'Forbidden')); }");
     });
 
     it('uses error(401) instead of redirect in parameterized command catch block', () => {
@@ -115,10 +115,10 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { throw error(401, 'Unauthorized'); }");
       expect(content).not.toContain("redirect(302");
-      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
+      expect(content).toContain("if (status === 403) { throw error(403, remoteErrorMessage(err, 'Forbidden')); }");
     });
 
-    it('preserves existing error(500) fallback in command', () => {
+    it('delegates the fallback arm to translateRemoteError in command', () => {
       const parsed: ParsedSpec = {
         operations: [createOperation({
           operationId: 'Foods_DeleteFood',
@@ -130,7 +130,7 @@ describe('generateRemoteFunctions', () => {
       };
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
-      expect(content).toContain("throw error(500, 'Failed to delete food');");
+      expect(content).toContain("throw translateRemoteError(err, 'Failed to delete food');");
     });
   });
 
@@ -192,7 +192,7 @@ describe('generateRemoteFunctions', () => {
       const redirectIndex = content.indexOf("if (status === 401) {");
       const forbiddenIndex = content.indexOf("if (status === 403) {");
       const consoleIndex = content.indexOf("console.error('Error in foodsV4.getFavorites:', err);");
-      const error500Index = content.indexOf("throw error(500, 'Failed to get favorites');");
+      const error500Index = content.indexOf("throw translateRemoteError(err, 'Failed to get favorites');");
 
       expect(statusIndex).toBeLessThan(redirectIndex);
       expect(redirectIndex).toBeLessThan(forbiddenIndex);
@@ -215,7 +215,7 @@ describe('generateRemoteFunctions', () => {
       const redirectIndex = content.indexOf("if (status === 401) {");
       const forbiddenIndex = content.indexOf("if (status === 403) {");
       const consoleIndex = content.indexOf("console.error('Error in foodsV4.syncAll:', err);");
-      const error500Index = content.indexOf("throw error(500, 'Failed to sync all');");
+      const error500Index = content.indexOf("throw translateRemoteError(err, 'Failed to sync all');");
 
       expect(statusIndex).toBeLessThan(redirectIndex);
       expect(redirectIndex).toBeLessThan(forbiddenIndex);
