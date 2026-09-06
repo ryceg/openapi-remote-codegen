@@ -5,3 +5,4 @@ dist/
 bin/
 obj/
 *.nupkg
+packages/codegen/src/__tests__/__generated__/

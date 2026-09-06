@@ -8,6 +8,22 @@ import {
   type FileInvalidationPlan,
 } from '../utils/invalidation.js';
 import { getClientPropertyName } from '../utils/client-mapping.js';
+import {
+  REMOTE_ERROR_FILE,
+  generateRemoteErrorFile,
+  generateRemoteErrorImport,
+  remoteErrorExportsUsedBy,
+} from './remote-error.js';
+
+const FORM_UTILS_FILE = 'form-utils.generated.ts';
+const INVALIDATION_FILE = 'invalidation.generated.ts';
+
+/** The modules shared by the tag files, emitted only when something needs them. */
+export const SHARED_MODULE_FILES: readonly string[] = [
+  FORM_UTILS_FILE,
+  INVALIDATION_FILE,
+  REMOTE_ERROR_FILE,
+];
 
 export function generateRemoteFunctions(parsed: ParsedSpec, config: GeneratorConfig): Map<string, string> {
   const fileContents = new Map<string, string>();
@@ -23,7 +39,11 @@ export function generateRemoteFunctions(parsed: ParsedSpec, config: GeneratorCon
   // Check if any tag uses form() — if so, emit the shared formCoerce utility
   const anyTagHasForm = parsed.operations.some(op => op.remoteType === 'form' && !op.isFileUpload);
   if (anyTagHasForm) {
-    fileContents.set('form-utils.generated.ts', generateFormUtilsFile(config));
+    fileContents.set(FORM_UTILS_FILE, generateFormUtilsFile(config));
+  }
+
+  if (remoteErrorExportsUsedBy(config).length > 0) {
+    fileContents.set(REMOTE_ERROR_FILE, generateRemoteErrorFile(config));
   }
 
   // Generate file for each tag
@@ -37,7 +57,7 @@ export function generateRemoteFunctions(parsed: ParsedSpec, config: GeneratorCon
   }
 
   if (anyTagRefreshes) {
-    fileContents.set('invalidation.generated.ts', generateInvalidationUtilsFile());
+    fileContents.set(INVALIDATION_FILE, generateInvalidationUtilsFile());
   }
 
   // Generate barrel export (pass operations to detect name collisions)
@@ -183,6 +203,7 @@ function generateTagFile(
   const kitImports = ['error', 'redirect'];
 
   const formCoerceImport = usesFormCoerce ? `import { formCoerce } from './form-utils.generated.js';\n` : '';
+  const remoteErrorImport = generateRemoteErrorImport(config);
   const errorHandlingImports = config.errorHandling.imports.length > 0
     ? `${config.errorHandling.imports.join('\n')}\n`
     : '';
@@ -199,7 +220,7 @@ function generateTagFile(
 
 import { ${serverImports.join(', ')} } from '${config.imports.server}';
 import { ${kitImports.join(', ')} } from '${config.imports.kit}';
-${zodImportLine}${errorHandlingImports}${formCoerceImport}${invalidationImport}${crossTagImports}${schemaImportLine}${apiImportLine}
+${zodImportLine}${remoteErrorImport}${errorHandlingImports}${formCoerceImport}${invalidationImport}${crossTagImports}${schemaImportLine}${apiImportLine}
 ${functions}
 `;
 }
@@ -216,11 +237,11 @@ function generateFunction(
   const refreshCalls = generateRefreshCalls(op, functionName, invalidation);
 
   if (op.isFileUpload) {
-    return generateFileUploadFunction(op, functionName, clientProperty, refreshCalls, config);
+    return generateFileUploadFunction(op, functionName, clientProperty, methodName, refreshCalls, config);
   }
 
   if (op.isUrlEncoded) {
-    return generateUrlEncodedFunction(op, functionName, clientProperty, refreshCalls, config);
+    return generateUrlEncodedFunction(op, functionName, clientProperty, methodName, refreshCalls, config);
   }
 
   if (op.remoteType === 'query') {
@@ -391,6 +412,7 @@ function generateFileUploadFunction(
   op: OperationInfo,
   functionName: string,
   clientProperty: string,
+  methodName: string,
   refreshCalls: string,
   config: GeneratorConfig
 ): string {
@@ -400,7 +422,7 @@ function generateFileUploadFunction(
   // submissions transport files natively.
   const wrapperName = 'form';
   const comment = op.summary ? `/** ${op.summary} */\n` : '';
-  const catchBlock = generateCatchBlock(config, clientProperty, functionName, functionName, wrapperName);
+  const catchBlock = generateCatchBlock(config, clientProperty, methodName, functionName, wrapperName);
   const fieldName = op.fileFieldName ?? 'file';
 
   const apiCall = op.isVoidResponse
@@ -415,6 +437,7 @@ function generateFileUploadFunction(
     if (!response.ok) {
       const err: any = new Error(\`Upload failed (\${response.status})\`);
       err.status = response.status;
+      try { err.response = await response.text(); } catch {}
       throw err;
     }${refreshCalls}
     return { success: true };`
@@ -429,6 +452,7 @@ function generateFileUploadFunction(
     if (!response.ok) {
       const err: any = new Error(\`Upload failed (\${response.status})\`);
       err.status = response.status;
+      try { err.response = await response.text(); } catch {}
       throw err;
     }
     const result = await response.json();${refreshCalls}
@@ -458,12 +482,13 @@ function generateUrlEncodedFunction(
   op: OperationInfo,
   functionName: string,
   clientProperty: string,
+  methodName: string,
   refreshCalls: string,
   config: GeneratorConfig
 ): string {
   const wrapperName = op.remoteType === 'form' ? 'form' : 'command';
   const comment = op.summary ? `/** ${op.summary} */\n` : '';
-  const catchBlock = generateCatchBlock(config, clientProperty, functionName, functionName, wrapperName);
+  const catchBlock = generateCatchBlock(config, clientProperty, methodName, functionName, wrapperName);
   const properties = op.urlEncodedProperties ?? [];
 
   // Build URLSearchParams body
@@ -499,6 +524,7 @@ ${paramSetters}`
     if (!response.ok) {
       const err: any = new Error(\`Request failed (\${response.status})\`);
       err.status = response.status;
+      try { err.response = await response.text(); } catch {}
       throw err;
     }
     ${responseHandling}`;

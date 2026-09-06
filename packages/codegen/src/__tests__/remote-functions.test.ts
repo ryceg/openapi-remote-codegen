@@ -53,7 +53,7 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
-      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
+      expect(content).toContain("if (status === 403) { throw error(403, remoteErrorMessage(err, 'Forbidden')); }");
     });
 
     it('includes 401 redirect in parameterized query catch block', () => {
@@ -68,17 +68,17 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
-      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
+      expect(content).toContain("if (status === 403) { throw error(403, remoteErrorMessage(err, 'Forbidden')); }");
     });
 
-    it('preserves existing error(500) fallback in query', () => {
+    it('delegates the fallback arm to translateRemoteError in query', () => {
       const parsed: ParsedSpec = {
         operations: [createOperation()],
         tags: ['V4 Foods'],
       };
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
-      expect(content).toContain("throw error(500, 'Failed to get favorites');");
+      expect(content).toContain("throw translateRemoteError(err, 'Failed to get favorites');");
     });
   });
 
@@ -97,7 +97,7 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { throw error(401, 'Unauthorized'); }");
       expect(content).not.toContain("redirect(302");
-      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
+      expect(content).toContain("if (status === 403) { throw error(403, remoteErrorMessage(err, 'Forbidden')); }");
     });
 
     it('uses error(401) instead of redirect in parameterized command catch block', () => {
@@ -115,10 +115,10 @@ describe('generateRemoteFunctions', () => {
       expect(content).toContain("const status = (err as any)?.status;");
       expect(content).toContain("if (status === 401) { throw error(401, 'Unauthorized'); }");
       expect(content).not.toContain("redirect(302");
-      expect(content).toContain("if (status === 403) { throw error(403, 'Forbidden'); }");
+      expect(content).toContain("if (status === 403) { throw error(403, remoteErrorMessage(err, 'Forbidden')); }");
     });
 
-    it('preserves existing error(500) fallback in command', () => {
+    it('delegates the fallback arm to translateRemoteError in command', () => {
       const parsed: ParsedSpec = {
         operations: [createOperation({
           operationId: 'Foods_DeleteFood',
@@ -130,7 +130,7 @@ describe('generateRemoteFunctions', () => {
       };
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
-      expect(content).toContain("throw error(500, 'Failed to delete food');");
+      expect(content).toContain("throw translateRemoteError(err, 'Failed to delete food');");
     });
   });
 
@@ -192,7 +192,7 @@ describe('generateRemoteFunctions', () => {
       const redirectIndex = content.indexOf("if (status === 401) {");
       const forbiddenIndex = content.indexOf("if (status === 403) {");
       const consoleIndex = content.indexOf("console.error('Error in foodsV4.getFavorites:', err);");
-      const error500Index = content.indexOf("throw error(500, 'Failed to get favorites');");
+      const error500Index = content.indexOf("throw translateRemoteError(err, 'Failed to get favorites');");
 
       expect(statusIndex).toBeLessThan(redirectIndex);
       expect(redirectIndex).toBeLessThan(forbiddenIndex);
@@ -215,7 +215,7 @@ describe('generateRemoteFunctions', () => {
       const redirectIndex = content.indexOf("if (status === 401) {");
       const forbiddenIndex = content.indexOf("if (status === 403) {");
       const consoleIndex = content.indexOf("console.error('Error in foodsV4.syncAll:', err);");
-      const error500Index = content.indexOf("throw error(500, 'Failed to sync all');");
+      const error500Index = content.indexOf("throw translateRemoteError(err, 'Failed to sync all');");
 
       expect(statusIndex).toBeLessThan(redirectIndex);
       expect(redirectIndex).toBeLessThan(forbiddenIndex);
@@ -663,6 +663,90 @@ describe('generateRemoteFunctions', () => {
 
       const files = generateRemoteFunctions(parsed, defaultConfig);
       expect(files.has('form-utils.generated.ts')).toBe(false);
+    });
+  });
+
+  describe('raw-fetch error bodies', () => {
+    it('keeps the response body on the error an upload throws', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Avatar_Upload',
+          tag: 'Avatar',
+          method: 'post',
+          path: '/api/v4/me/avatar',
+          remoteType: 'command',
+          isFileUpload: true,
+          fileFieldName: 'file',
+          isVoidResponse: false,
+        })],
+        tags: ['Avatar'],
+      };
+
+      const content = getGeneratedFile(parsed, 'avatars.generated.remote.ts');
+      expect(content).toContain('err.status = response.status;');
+      expect(content).toContain('err.response = await response.text();');
+    });
+
+    it('keeps the response body on the error a url-encoded post throws', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_DeviceApprove',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/api/oauth/device-approve',
+          remoteType: 'command',
+          isUrlEncoded: true,
+          urlEncodedProperties: [{ name: 'user_code', type: 'string', required: true }],
+          isVoidResponse: true,
+        })],
+        tags: ['OAuth'],
+      };
+
+      const content = getGeneratedFile(parsed, 'oauths.generated.remote.ts');
+      expect(content).toContain('err.response = await response.text();');
+    });
+
+    it('logs an upload against the client method, not the exported name', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          // The export is renamed off a reserved word; the log names the method called.
+          operationId: 'Sounds_Import',
+          tag: 'Sounds',
+          method: 'post',
+          path: '/api/v4/alert-sounds',
+          remoteType: 'command',
+          isFileUpload: true,
+          fileFieldName: 'file',
+          isVoidResponse: true,
+          clientPropertyName: 'soundsV4',
+        })],
+        tags: ['Sounds'],
+      };
+
+      const content = getGeneratedFile(parsed, 'sounds.generated.remote.ts');
+      expect(content).toContain('export const _import = form(');
+      expect(content).toContain("console.error('Error in soundsV4.import:', err);");
+    });
+
+    it('logs a url-encoded post against the client method, not the exported name', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_Delete',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/api/oauth/revoke',
+          remoteType: 'command',
+          isUrlEncoded: true,
+          urlEncodedProperties: [{ name: 'token', type: 'string', required: true }],
+          isVoidResponse: true,
+          clientPropertyName: 'oauth',
+        })],
+        tags: ['OAuth'],
+      };
+
+      const content = getGeneratedFile(parsed, 'oauths.generated.remote.ts');
+      expect(content).toContain('export const remove = command(');
+      expect(content).toContain("console.error('Error in oauth.delete:', err);");
     });
   });
 
