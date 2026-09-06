@@ -43,7 +43,8 @@ export interface ErrorHandling {
    * Statuses the default {@link on500} arm rethrows under their own status,
    * carrying the server's message; every other status becomes a 500. Baked into
    * the emitted `remote-error.generated.ts`, so an arm that does not call
-   * `translateRemoteError` ignores it. Default: 400, 409, 429.
+   * `translateRemoteError` ignores it. Default: 400, 409, 429. A 5xx here puts the
+   * server's own error text, stack fragments included, in front of the user.
    */
   forwardStatuses: number[];
   /**
