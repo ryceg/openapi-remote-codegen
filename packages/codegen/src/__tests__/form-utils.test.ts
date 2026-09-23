@@ -9,43 +9,44 @@ import { z } from 'zod';
 
 // Executes the emitted form-utils module rather than string-matching it: the consumer
 // contract is that SvelteKit's convert_formdata output (arrays for `name[]` fields,
-// nested objects for `a.b` fields) survives coercion and validates.
-const emittedPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  'form-utils.emitted-under-test.generated.ts'
-);
+// nested objects for `a.b` fields) survives coercion and validates. The typed variant
+// differs only in its declared types, so both must behave the same.
+describe.each([
+  { typedSchemas: false, file: 'form-utils.emitted-under-test.generated.ts' },
+  { typedSchemas: true, file: 'form-utils.typed.emitted-under-test.generated.ts' },
+])('emitted formCoerce (typedSchemas: $typedSchemas)', ({ typedSchemas, file }) => {
+  const emittedPath = join(dirname(fileURLToPath(import.meta.url)), file);
 
-let formCoerce: <T extends z.ZodTypeAny>(schema: T) => T;
+  let formCoerce: <T extends z.ZodTypeAny>(schema: T) => T;
 
-beforeAll(async () => {
-  const parsed: ParsedSpec = {
-    operations: [
-      {
-        operationId: 'Signups_Begin',
-        tag: 'Signups',
-        method: 'post',
-        path: '/api/signups/begin',
-        remoteType: 'form',
-        invalidates: [],
-        parameters: [],
-        isVoidResponse: false,
-        clientPropertyName: 'signups',
-      },
-    ],
-    tags: ['Signups'],
-  };
-  const files = generateRemoteFunctions(parsed, resolveConfig({}));
-  const content = files.get('form-utils.generated.ts');
-  if (!content) throw new Error('form-utils.generated.ts was not emitted');
-  writeFileSync(emittedPath, content);
-  ({ formCoerce } = await import(emittedPath));
-});
+  beforeAll(async () => {
+    const parsed: ParsedSpec = {
+      operations: [
+        {
+          operationId: 'Signups_Begin',
+          tag: 'Signups',
+          method: 'post',
+          path: '/api/signups/begin',
+          remoteType: 'form',
+          invalidates: [],
+          parameters: [],
+          isVoidResponse: false,
+          clientPropertyName: 'signups',
+        },
+      ],
+      tags: ['Signups'],
+    };
+    const files = generateRemoteFunctions(parsed, resolveConfig({ typedSchemas }));
+    const content = files.get('form-utils.generated.ts');
+    if (!content) throw new Error('form-utils.generated.ts was not emitted');
+    writeFileSync(emittedPath, content);
+    ({ formCoerce } = await import(emittedPath));
+  });
 
-afterAll(() => {
-  rmSync(emittedPath, { force: true });
-});
+  afterAll(() => {
+    rmSync(emittedPath, { force: true });
+  });
 
-describe('emitted formCoerce', () => {
   const schema = z.object({
     email: z.string(),
     healthDataConsent: z.boolean(),

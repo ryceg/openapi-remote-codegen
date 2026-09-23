@@ -56,7 +56,7 @@ async function main() {
   const spec = JSON.parse(readFileSync(specPath, 'utf-8'));
   console.log(`Loaded OpenAPI spec: ${spec.info?.title ?? 'unknown'} v${spec.info?.version ?? 'unknown'}`);
 
-  const parsed = parseOpenApiSpec(spec);
+  const parsed = parseOpenApiSpec(spec, { dateTimeType: config.dateTimeType });
   console.log(`Found ${parsed.operations.length} annotated operations across ${parsed.tags.length} tags.\n`);
 
   if (parsed.operations.length === 0) {

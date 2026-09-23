@@ -41,6 +41,8 @@ export default defineConfig({
 | `apiClientOutput` | `string` | `'api/api-client.generated.ts'` | Path within `outputDir` for the ApiClient wrapper |
 | `clientAccess` | `string` | `'getRequestEvent().locals.apiClient'` | Expression to access the API client in generated functions |
 | `nswagClientPath` | `string` | `'./generated/api-client'` | Path to the NSwag-generated client module |
+| `dateTimeType` | `'Date' \| 'string'` | `'Date'` | How the client represents `format: date-time`; match NSwag's own `dateTimeType` (see below) |
+| `typedSchemas` | `boolean` | `false` | The Zod schemas are typed to the API types, so bodies reach the client uncast (see below) |
 | `imports` | `ImportPaths` | See below | Module paths used in generated `import` statements |
 | `errorHandling` | `ErrorHandling` | See below | Templates for generated `catch` blocks |
 
@@ -74,6 +76,40 @@ preferring, within one, `errors` (flattened), `error`, `detail`, `title`, `messa
 status collapses to a 500 carrying the arm's fallback, so a failure the API did not
 write for the user cannot narrate itself to them. Overriding both arms with code that
 calls neither helper suppresses the module.
+
+### `dateTimeType`
+
+Set it to the NSwag client's `dateTimeType`. With `'Date'`, date-time parameters are
+validated with `z.coerce.date()` and handed to the client as a `Date`. With `'string'`,
+they are validated with `z.iso.datetime({ offset: true })` and handed on as the ISO text
+the caller sent, so the client's `"" + value` query concatenation carries ISO 8601 rather
+than `Date#toString()`. `'string'` needs Zod 4. It shapes inline request bodies too
+(`Guid[]`-style arrays and dictionaries of date-times).
+
+### `typedSchemas`
+
+Turn it on when every schema in `imports.schemas` has the output type of the API type
+it validates, e.g. `FooSchema = z.object({...}) satisfies z.ZodType<Foo>`. Request bodies
+then reach the client as `request` rather than `request as Foo`, and `form()` schemas go
+through a `formCoerce` typed to the schema's output rather than `formCoerce(FooSchema) as
+any`, so a form handler's argument is typed. An omitted optional body is still replaced
+with `{}` and cast, because the client's type may require fields an empty body lacks.
+Leave it off for schemas that infer `unknown`, such as `z.fromJSONSchema()` output: with it
+on, any schema whose output differs from its API type becomes a type error at the call.
+
+### Upgrading to 0.8.0
+
+Output changes for every project, whatever the config:
+
+- A query whose params include a required one takes a **required** params object and
+  reads `params.x`. Earlier versions made the object optional and read `params?.x`, which handed
+  `undefined` to a client parameter typed as required. A caller that omitted the object
+  for such a query now fails to type-check, as it would have failed at the server.
+- `error` and `redirect` are imported from `imports.kit` only by files that call them.
+  Command- and form-only files no longer import an unused `redirect`.
+- DTO types are imported only when the file names them.
+
+`dateTimeType` and `typedSchemas` are new and default to the 0.7.0 behaviour.
 
 ### Upgrading to 0.7.0
 
@@ -195,7 +231,7 @@ import { resolveConfig, parseOpenApiSpec, generateRemoteFunctions } from 'openap
 
 const config = resolveConfig({ openApiPath: './my-spec.json' });
 const spec = JSON.parse(readFileSync(config.openApiPath, 'utf-8'));
-const parsed = parseOpenApiSpec(spec);
+const parsed = parseOpenApiSpec(spec, { dateTimeType: config.dateTimeType });
 const files = generateRemoteFunctions(parsed, config);
 
 for (const [fileName, content] of files) {
@@ -211,6 +247,7 @@ import type {
   UserConfig,
   ImportPaths,
   ErrorHandling,
+  DateTimeType,
   ParsedSpec,
   OperationInfo,
   ParameterInfo,

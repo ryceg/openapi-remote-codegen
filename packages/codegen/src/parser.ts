@@ -1,4 +1,6 @@
 import type { OpenAPIV3 } from 'openapi-types';
+import type { DateTimeType } from './config.js';
+import { dateTimeZodSchema } from './utils/date-time.js';
 import type { OperationInfo, InlineRequestBody, ParsedSpec, ParameterInfo, RemoteType, UrlEncodedProperty } from './types.js';
 
 // Extended operation type to include our custom extensions
@@ -9,7 +11,13 @@ type OperationWithExtensions = OpenAPIV3.OperationObject & {
   'x-remote-batch'?: boolean;
 };
 
-export function parseOpenApiSpec(spec: OpenAPIV3.Document): ParsedSpec {
+export interface ParseOptions {
+  /** As `GeneratorConfig.dateTimeType`; shapes inline request bodies. Default: `'Date'`. */
+  dateTimeType?: DateTimeType;
+}
+
+export function parseOpenApiSpec(spec: OpenAPIV3.Document, options: ParseOptions = {}): ParsedSpec {
+  const dateTimeType = options.dateTimeType ?? 'Date';
   const operations: OperationInfo[] = [];
   const tagsSet = new Set<string>();
 
@@ -35,7 +43,10 @@ export function parseOpenApiSpec(spec: OpenAPIV3.Document): ParsedSpec {
         pathItem.parameters ?? [],
         spec.components
       );
-      const requestBodyResult = parseRequestBody(operation.requestBody as OpenAPIV3.RequestBodyObject | undefined);
+      const requestBodyResult = parseRequestBody(
+        operation.requestBody as OpenAPIV3.RequestBodyObject | undefined,
+        dateTimeType
+      );
       const requestBodySchema = requestBodyResult?.schema;
       const isArrayBody = requestBodyResult?.isArray ?? false;
 
@@ -206,7 +217,10 @@ interface RequestBodyParseResult {
   inline?: InlineRequestBody;
 }
 
-function parseRequestBody(body: OpenAPIV3.RequestBodyObject | undefined): RequestBodyParseResult | undefined {
+function parseRequestBody(
+  body: OpenAPIV3.RequestBodyObject | undefined,
+  dateTimeType: DateTimeType
+): RequestBodyParseResult | undefined {
   if (!body?.content?.['application/json']?.schema) return undefined;
 
   const required = body.required ?? false;
@@ -226,7 +240,7 @@ function parseRequestBody(body: OpenAPIV3.RequestBodyObject | undefined): Reques
     }
 
     // Arrays of primitives (e.g., Guid[]) have no named schema to import, so they bind inline.
-    const item = resolvePrimitiveSchema(items as OpenAPIV3.SchemaObject);
+    const item = resolvePrimitiveSchema(items as OpenAPIV3.SchemaObject, dateTimeType);
     if (item) {
       return {
         schema: '',
@@ -243,7 +257,7 @@ function parseRequestBody(body: OpenAPIV3.RequestBodyObject | undefined): Reques
 
   // Handle inline object schemas (e.g., Dictionary<string, string> -> { type: "object", additionalProperties: ... })
   if (schemaObj.type === 'object' && schemaObj.additionalProperties) {
-    const inline = resolveInlineObjectSchema(schemaObj);
+    const inline = resolveInlineObjectSchema(schemaObj, dateTimeType);
     if (inline) {
       return { schema: '', isArray: false, required, inline };
     }
@@ -256,7 +270,10 @@ function parseRequestBody(body: OpenAPIV3.RequestBodyObject | undefined): Reques
  * Convert an inline OpenAPI object schema with additionalProperties to a Zod schema and TS type.
  * Handles Dictionary<TKey, TValue> patterns from C#.
  */
-function resolveInlineObjectSchema(schema: OpenAPIV3.SchemaObject): InlineRequestBody | undefined {
+function resolveInlineObjectSchema(
+  schema: OpenAPIV3.SchemaObject,
+  dateTimeType: DateTimeType
+): InlineRequestBody | undefined {
   const additionalProps = schema.additionalProperties;
   const unknownRecord: InlineRequestBody = {
     zodSchema: 'z.record(z.string(), z.unknown())',
@@ -267,7 +284,7 @@ function resolveInlineObjectSchema(schema: OpenAPIV3.SchemaObject): InlineReques
   if (!additionalProps || additionalProps === true) return unknownRecord;
 
   if (typeof additionalProps === 'object' && !('$ref' in additionalProps)) {
-    const value = resolvePrimitiveSchema(additionalProps as OpenAPIV3.SchemaObject);
+    const value = resolvePrimitiveSchema(additionalProps as OpenAPIV3.SchemaObject, dateTimeType);
     if (!value) return unknownRecord;
     return {
       zodSchema: `z.record(z.string(), ${value.zodSchema})`,
@@ -284,7 +301,8 @@ function resolveInlineObjectSchema(schema: OpenAPIV3.SchemaObject): InlineReques
  * not a primitive, so callers can fall back to their own handling.
  */
 function resolvePrimitiveSchema(
-  schema: OpenAPIV3.SchemaObject
+  schema: OpenAPIV3.SchemaObject,
+  dateTimeType: DateTimeType
 ): { zodSchema: string; tsType: string } | undefined {
   switch (getSchemaType(schema)) {
     case 'string':
@@ -294,7 +312,7 @@ function resolvePrimitiveSchema(
     case 'boolean':
       return { zodSchema: 'z.boolean()', tsType: 'boolean' };
     case 'Date':
-      return { zodSchema: 'z.coerce.date()', tsType: 'Date' };
+      return { zodSchema: dateTimeZodSchema(dateTimeType), tsType: dateTimeType };
     default:
       return undefined;
   }
@@ -390,6 +408,11 @@ function parseUrlEncodedBody(
   return { isUrlEncoded: true, properties };
 }
 
+/**
+ * The parameter type token for a schema. `'Date'` marks `format: date-time`
+ * whatever {@link ParseOptions.dateTimeType} says; the generator decides how a
+ * date-time is validated.
+ */
 function getSchemaType(schema: OpenAPIV3.SchemaObject | undefined): string {
   if (!schema) return 'unknown';
 

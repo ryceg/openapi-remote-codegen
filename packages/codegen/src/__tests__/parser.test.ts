@@ -872,4 +872,62 @@ describe('parseOpenApiSpec', () => {
       expect(op.inlineRequestBody).toEqual({ zodSchema, tsType });
     }
   });
+
+  describe('dateTimeType', () => {
+    function arrayBodySpec(items: OpenAPIV3.SchemaObject): OpenAPIV3.Document {
+      return createSpec({
+        paths: {
+          '/api/v4/things/bulk': {
+            post: {
+              tags: ['V4 Things'],
+              operationId: 'Things_Bulk',
+              'x-remote-type': 'command',
+              parameters: [],
+              requestBody: {
+                required: true,
+                content: { 'application/json': { schema: { type: 'array', items } } },
+              },
+              responses: { '204': { description: 'No content' } },
+            } as any,
+          },
+        },
+      });
+    }
+
+    it('binds an inline date-time as an ISO string when the client uses strings', () => {
+      const spec = arrayBodySpec({ type: 'string', format: 'date-time' });
+      const op = parseOpenApiSpec(spec, { dateTimeType: 'string' }).operations[0];
+      expect(op.inlineRequestBody).toEqual({
+        zodSchema: 'z.array(z.iso.datetime({ offset: true }))',
+        tsType: 'string[]',
+        emptyValue: '[]',
+      });
+    });
+
+    it('binds an inline date-time as a Date by default', () => {
+      const spec = arrayBodySpec({ type: 'string', format: 'date-time' });
+      const op = parseOpenApiSpec(spec).operations[0];
+      expect(op.inlineRequestBody?.tsType).toBe('Date[]');
+    });
+
+    it('marks a date-time parameter Date whatever the option, for the generator to decide', () => {
+      const spec = createSpec({
+        paths: {
+          '/api/v4/things': {
+            get: {
+              tags: ['V4 Things'],
+              operationId: 'Things_List',
+              'x-remote-type': 'query',
+              parameters: [
+                { name: 'from', in: 'query', required: true, schema: { type: 'string', format: 'date-time' } },
+              ],
+              responses: { '200': { description: 'OK' } },
+            } as any,
+          },
+        },
+      });
+      const op = parseOpenApiSpec(spec, { dateTimeType: 'string' }).operations[0];
+      expect(op.parameters[0].type).toBe('Date');
+    });
+  });
 });

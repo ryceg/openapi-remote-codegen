@@ -22,6 +22,14 @@ describe('resolveConfig', () => {
     expect(config.imports.zod).toBe('zod');
     expect(config.clientAccess).toBe('getRequestEvent().locals.apiClient');
     expect(config.nswagClientPath).toBe('./generated/api-client');
+    expect(config.dateTimeType).toBe('Date');
+    expect(config.typedSchemas).toBe(false);
+  });
+
+  it('allows opting into string date-times and typed schemas', () => {
+    const config = resolveConfig({ dateTimeType: 'string', typedSchemas: true });
+    expect(config.dateTimeType).toBe('string');
+    expect(config.typedSchemas).toBe(true);
   });
 
   it('merges partial imports with defaults', () => {

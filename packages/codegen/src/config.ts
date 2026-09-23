@@ -77,7 +77,27 @@ export interface GeneratorConfig {
   errorHandling: ErrorHandling;
   /** Path to the NSwag-generated client module (used in ApiClient imports). Default: './generated/api-client' */
   nswagClientPath: string;
+  /**
+   * How the generated HTTP client represents a `format: date-time` value; set it to
+   * the NSwag client's own `dateTimeType`. `'Date'` validates date-time parameters
+   * with `z.coerce.date()` and hands the client a `Date`; `'string'` validates an
+   * ISO 8601 string with `z.iso.datetime({ offset: true })` (Zod 4) and hands it on
+   * unchanged, so the client's `"" + value` query concatenation carries ISO text.
+   * Default: `'Date'`.
+   */
+  dateTimeType: DateTimeType;
+  /**
+   * The Zod schemas module types every schema to its API type (e.g.
+   * `FooSchema satisfies z.ZodType<Foo>`), so a validated body already has the
+   * type the client method takes. When set, request bodies reach the client
+   * uncast and `form()` schemas go through a typed `formCoerce` rather than
+   * `as any`. Leave it off for schemas that infer `unknown`, such as
+   * `z.fromJSONSchema()` output. Default: `false`.
+   */
+  typedSchemas: boolean;
 }
+
+export type DateTimeType = 'Date' | 'string';
 
 export type UserConfig = Partial<Omit<GeneratorConfig, 'imports' | 'errorHandling'>> & {
   imports?: Partial<ImportPaths>;
@@ -112,6 +132,8 @@ const DEFAULTS: GeneratorConfig = {
   clientAccess: 'getRequestEvent().locals.apiClient',
   errorHandling: DEFAULT_ERROR_HANDLING,
   nswagClientPath: './generated/api-client',
+  dateTimeType: 'Date',
+  typedSchemas: false,
 };
 
 /** Type-helper for config files. Returns the input as-is. */
@@ -136,5 +158,7 @@ export function resolveConfig(user: UserConfig): GeneratorConfig {
       ...user.errorHandling,
     },
     nswagClientPath: user.nswagClientPath ?? DEFAULTS.nswagClientPath,
+    dateTimeType: user.dateTimeType ?? DEFAULTS.dateTimeType,
+    typedSchemas: user.typedSchemas ?? DEFAULTS.typedSchemas,
   };
 }

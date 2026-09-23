@@ -41,6 +41,249 @@ describe('generateRemoteFunctions', () => {
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("import { error, redirect } from '@sveltejs/kit';");
     });
+
+    it('leaves redirect out of a file whose only redirect would be a query 401', () => {
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Foods_SyncAll',
+          remoteType: 'command',
+          isVoidResponse: true,
+        })],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain("import { error } from '@sveltejs/kit';");
+      expect(content).not.toMatch(/\bredirect\b/);
+    });
+
+    it('imports redirect wherever a configured arm calls it', () => {
+      const config = resolveConfig({
+        errorHandling: { on403: "throw redirect(302, '/forbidden')" },
+      });
+      const parsed: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'Foods_SyncAll',
+          remoteType: 'command',
+          isVoidResponse: true,
+        })],
+        tags: ['V4 Foods'],
+      };
+
+      const content = generateRemoteFunctions(parsed, config).get('foods.generated.remote.ts')!;
+      expect(content).toContain("import { error, redirect } from '@sveltejs/kit';");
+    });
+
+    it('omits the kit import when no arm calls into it', () => {
+      const config = resolveConfig({
+        errorHandling: {
+          on401: 'throw new Error("401")',
+          on403: 'throw new Error("403")',
+          on500: () => 'throw err',
+        },
+      });
+      const parsed: ParsedSpec = {
+        operations: [createOperation()],
+        tags: ['V4 Foods'],
+      };
+
+      const content = generateRemoteFunctions(parsed, config).get('foods.generated.remote.ts')!;
+      expect(content).not.toContain("from '@sveltejs/kit'");
+    });
+
+    it('does not mistake a method named redirect for a call to it', () => {
+      const config = resolveConfig({
+        errorHandling: { on401: 'throw error(401, "Unauthorized")' },
+      });
+      const parsed: ParsedSpec = {
+        operations: [createOperation({ operationId: 'Links_Redirect', clientPropertyName: 'links' })],
+        tags: ['V4 Foods'],
+      };
+
+      const content = generateRemoteFunctions(parsed, config).get('foods.generated.remote.ts')!;
+      expect(content).toContain('apiClient.links.redirect()');
+      expect(content).toContain("import { error } from '@sveltejs/kit';");
+    });
+  });
+
+  describe('query parameters', () => {
+    const statsOp = (required: boolean[]) =>
+      createOperation({
+        operationId: 'Statistics_GetRange',
+        clientPropertyName: 'statistics',
+        parameters: required.map((r, i) => ({
+          name: `p${i}`,
+          in: 'query' as const,
+          required: r,
+          type: 'string',
+        })),
+      });
+
+    it('requires the params object, and reads it directly, when any param is required', () => {
+      const parsed: ParsedSpec = { operations: [statsOp([true, false])], tags: ['V4 Foods'] };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('query(z.object({ p0: z.string(), p1: z.string().optional() }), async (params)');
+      expect(content).toContain('getRange(params.p0, params.p1)');
+      expect(content).not.toContain('params?.');
+    });
+
+    it('keeps the params object optional when every param is', () => {
+      const parsed: ParsedSpec = { operations: [statsOp([false, false])], tags: ['V4 Foods'] };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('query(z.object({ p0: z.string().optional(), p1: z.string().optional() }).optional(), async (params)');
+      expect(content).toContain('getRange(params?.p0, params?.p1)');
+    });
+
+    it('requires the params object of a batch query with a required param', () => {
+      const parsed: ParsedSpec = {
+        operations: [{ ...statsOp([true]), isBatch: true }],
+        tags: ['V4 Foods'],
+      };
+
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('query.batch(z.object({ p0: z.string() }), async (args)');
+      expect(content).toContain('getRange(params.p0)');
+    });
+  });
+
+  describe('dateTimeType', () => {
+    const dateOp = createOperation({
+      operationId: 'Statistics_GetRange',
+      clientPropertyName: 'statistics',
+      parameters: [
+        { name: 'from', in: 'query', required: true, type: 'Date' },
+        { name: 'days', in: 'query', required: false, type: 'array', itemType: 'Date' },
+      ],
+    });
+    const parsed: ParsedSpec = { operations: [dateOp], tags: ['V4 Foods'] };
+
+    it('coerces date-time params to Date by default', () => {
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('from: z.coerce.date()');
+      expect(content).toContain('days: z.array(z.coerce.date()).optional()');
+    });
+
+    it('validates date-time params as ISO strings when the client takes strings', () => {
+      const config = resolveConfig({ dateTimeType: 'string' });
+      const content = generateRemoteFunctions(parsed, config).get('foods.generated.remote.ts')!;
+      expect(content).toContain('from: z.iso.datetime({ offset: true })');
+      expect(content).toContain('days: z.array(z.iso.datetime({ offset: true })).optional()');
+      expect(content).not.toContain('z.coerce.date()');
+    });
+
+    it('emits a string schema that takes ISO text and refuses Date#toString()', async () => {
+      const { z } = await import('zod');
+      const schema = z.iso.datetime({ offset: true });
+      const at = new Date('2026-09-24T01:02:03.000Z');
+      expect(schema.parse(at.toISOString())).toBe('2026-09-24T01:02:03.000Z');
+      expect(schema.safeParse('2026-09-24T11:02:03+10:00').success).toBe(true);
+      expect(schema.safeParse(at.toString()).success).toBe(false);
+      expect(schema.safeParse(at).success).toBe(false);
+    });
+  });
+
+  describe('typedSchemas', () => {
+    const typed = resolveConfig({ typedSchemas: true });
+    const bodyOps: OperationInfo[] = [
+      createOperation({
+        operationId: 'Foods_Create',
+        remoteType: 'command',
+        requestBodySchema: 'CreateFoodRequestSchema',
+        requestBodyRequired: true,
+      }),
+      createOperation({
+        operationId: 'Foods_Update',
+        remoteType: 'command',
+        requestBodySchema: 'UpdateFoodRequestSchema',
+        requestBodyRequired: true,
+        parameters: [{ name: 'id', in: 'path', required: true, type: 'string' }],
+      }),
+      createOperation({
+        operationId: 'Foods_BulkCreate',
+        remoteType: 'command',
+        requestBodySchema: 'FoodSchema',
+        requestBodyRequired: true,
+        isArrayBody: true,
+      }),
+      createOperation({
+        operationId: 'Foods_Touch',
+        remoteType: 'command',
+        requestBodySchema: 'TouchRequestSchema',
+        requestBodyRequired: false,
+      }),
+      createOperation({
+        operationId: 'Foods_AddFavorite',
+        remoteType: 'form',
+        requestBodySchema: 'AddFavoriteRequestSchema',
+        requestBodyRequired: true,
+      }),
+    ];
+    const parsed: ParsedSpec = { operations: bodyOps, tags: ['V4 Foods'] };
+
+    it('casts request bodies and form schemas by default', () => {
+      const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
+      expect(content).toContain('create(request as CreateFoodRequest)');
+      expect(content).toContain('update(id, request as UpdateFoodRequest)');
+      expect(content).toContain('bulkCreate(request as Food[])');
+      expect(content).toContain('form(formCoerce(AddFavoriteRequestSchema) as any, async (request)');
+    });
+
+    it('hands a typed body to the client uncast', () => {
+      const content = generateRemoteFunctions(parsed, typed).get('foods.generated.remote.ts')!;
+      expect(content).toContain('apiClient.foodsV4.create(request);');
+      expect(content).toContain('apiClient.foodsV4.update(id, request);');
+      expect(content).toContain('apiClient.foodsV4.bulkCreate(request);');
+      expect(content).not.toContain('request as ');
+    });
+
+    it('imports only the DTO types a cast still names', () => {
+      const content = generateRemoteFunctions(parsed, typed).get('foods.generated.remote.ts')!;
+      expect(content).toContain("import { type TouchRequest } from '$api';");
+    });
+
+    it('still casts the empty body substituted for an omitted optional one', () => {
+      const content = generateRemoteFunctions(parsed, typed).get('foods.generated.remote.ts')!;
+      expect(content).toContain('touch((request ?? {}) as TouchRequest)');
+    });
+
+    it('passes a typed form schema through formCoerce without as any', () => {
+      const content = generateRemoteFunctions(parsed, typed).get('foods.generated.remote.ts')!;
+      expect(content).toContain('form(formCoerce(AddFavoriteRequestSchema), async (request)');
+      expect(content).not.toContain('as any, async');
+    });
+
+    it('drops as any from a url-encoded form schema', () => {
+      const parsedUrl: ParsedSpec = {
+        operations: [createOperation({
+          operationId: 'OAuth_Token',
+          tag: 'OAuth',
+          method: 'post',
+          path: '/oauth/token',
+          remoteType: 'form',
+          isUrlEncoded: true,
+          urlEncodedProperties: [{ name: 'grant_type', type: 'string', required: true }],
+        })],
+        tags: ['OAuth'],
+      };
+      const content = generateRemoteFunctions(parsedUrl, typed).get('oauths.generated.remote.ts')!;
+      expect(content).toContain('form(formCoerce(z.object({ grant_type: z.string() })), async (request)');
+    });
+
+    it('emits a formCoerce typed to the schema output and a form payload input', () => {
+      const utils = generateRemoteFunctions(parsed, typed).get('form-utils.generated.ts')!;
+      expect(utils).toContain("import type { RemoteFormInput } from '@sveltejs/kit';");
+      expect(utils).toContain(
+        'export function formCoerce<T extends z.ZodType>(schema: T): z.ZodType<z.output<T>, FormInput<T>>'
+      );
+    });
+
+    it('keeps the untyped formCoerce by default', () => {
+      const utils = getGeneratedFile(parsed, 'form-utils.generated.ts');
+      expect(utils).not.toContain('RemoteFormInput');
+      expect(utils).toContain('export function formCoerce<T extends z.ZodTypeAny>(schema: T) {');
+    });
   });
 
   describe('auth error handling in query functions', () => {
@@ -265,7 +508,7 @@ describe('generateRemoteFunctions', () => {
       };
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
-      expect(content).toContain("import { error, redirect } from '@sveltejs/kit'");
+      expect(content).toContain("import { error } from '@sveltejs/kit'");
       expect(content).not.toContain('invalid');
     });
 
