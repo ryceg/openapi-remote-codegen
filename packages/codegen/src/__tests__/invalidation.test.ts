@@ -189,6 +189,48 @@ describe('refreshThunks', () => {
     );
   });
 
+  it('reads the path parameter off params when the mutation also takes query parameters', () => {
+    const target = op({
+      operationId: 'X_GetById',
+      parameters: [{ name: 'id', in: 'path', required: true, type: 'string' }],
+    });
+    const withQuery = op({
+      operationId: 'X_Delete',
+      remoteType: 'command',
+      parameters: [
+        { name: 'id', in: 'path', required: true, type: 'string' },
+        { name: 'force', in: 'query', required: false, type: 'boolean' },
+      ],
+    });
+
+    expect(refreshThunks(withQuery, [{ operation: target, localName: 'target' }])[0]).toBe(
+      '() => target(params.id).refresh()'
+    );
+  });
+
+  it('builds the query object from params when the mutation also takes query parameters', () => {
+    const target = op({
+      operationId: 'X_GetOne',
+      parameters: [
+        { name: 'id', in: 'path', required: true, type: 'string' },
+        { name: 'kind', in: 'path', required: true, type: 'string' },
+      ],
+    });
+    const withQuery = op({
+      operationId: 'X_Delete',
+      remoteType: 'command',
+      parameters: [
+        { name: 'id', in: 'path', required: true, type: 'string' },
+        { name: 'kind', in: 'path', required: true, type: 'string' },
+        { name: 'force', in: 'query', required: false, type: 'boolean' },
+      ],
+    });
+
+    expect(refreshThunks(withQuery, [{ operation: target, localName: 'target' }])[0]).toBe(
+      '() => target({ id: params.id, kind: params.kind }).refresh()'
+    );
+  });
+
   it('skips the fixed key when the mutation cannot supply every path parameter', () => {
     const target = op({
       operationId: 'X_GetOne',

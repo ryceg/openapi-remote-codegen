@@ -148,9 +148,7 @@ export function refreshThunks(
   declaringOp: OperationInfo,
   targets: InvalidationTarget[]
 ): string[] {
-  const availablePathParams = new Set(
-    declaringOp.parameters.filter((p) => p.in === 'path').map((p) => p.name)
-  );
+  const availablePathParams = pathParamAccess(declaringOp);
 
   const thunks: string[] = [];
 
@@ -166,6 +164,20 @@ export function refreshThunks(
 }
 
 /**
+ * How the mutation's handler reaches each of its path parameters: bare where
+ * `buildParameterMapping` destructures them, through `params` where path and
+ * query parameters arrive as one undestructured object.
+ */
+function pathParamAccess(declaringOp: OperationInfo): ReadonlyMap<string, string> {
+  const pathParams = declaringOp.parameters.filter((p) => p.in === 'path');
+  const hasQuery = declaringOp.parameters.some((p) => p.in === 'query');
+  const hasBody = !!declaringOp.requestBodySchema || !!declaringOp.inlineRequestBody;
+  const viaParams = hasQuery && !hasBody;
+
+  return new Map(pathParams.map((p) => [p.name, viaParams ? `params.${p.name}` : p.name]));
+}
+
+/**
  * The argument a fixed-key refresh passes the query, or undefined when the
  * mutation cannot name a key anything would be holding.
  *
@@ -177,7 +189,7 @@ export function refreshThunks(
  */
 function fixedKeyArgument(
   target: OperationInfo,
-  availablePathParams: ReadonlySet<string>
+  availablePathParams: ReadonlyMap<string, string>
 ): string | undefined {
   const pathParams = target.parameters.filter((p) => p.in === 'path');
   const queryParams = target.parameters.filter((p) => p.in === 'query');
@@ -185,7 +197,11 @@ function fixedKeyArgument(
   if (pathParams.length === 0) return 'undefined';
   if (queryParams.length > 0) return undefined;
   if (!pathParams.every((p) => availablePathParams.has(p.name))) return undefined;
-  if (pathParams.length === 1) return pathParams[0].name;
 
-  return `{ ${pathParams.map((p) => p.name).join(', ')} }`;
+  const access = (name: string) => availablePathParams.get(name)!;
+  if (pathParams.length === 1) return access(pathParams[0].name);
+
+  return `{ ${pathParams
+    .map((p) => (access(p.name) === p.name ? p.name : `${p.name}: ${access(p.name)}`))
+    .join(', ')} }`;
 }
