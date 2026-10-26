@@ -279,6 +279,14 @@ describe('generateRemoteFunctions', () => {
       );
     });
 
+    it('types an input FormData cannot carry as that input with nulls and dates mapped, not as any payload', () => {
+      const utils = generateRemoteFunctions(parsed, typed).get('form-utils.generated.ts')!;
+      expect(utils).toContain(
+        'type FormInput<T extends z.ZodType> = z.input<T> extends RemoteFormInput ? z.input<T> : FormPayload<z.input<T>>;'
+      );
+      expect(utils).toContain('type FormPayload<T> = { [K in keyof T]: FormValue<Exclude<T[K], null>> };');
+    });
+
     it('imports RemoteFormInput from imports.types, not imports.kit', () => {
       const kit2 = resolveConfig({ typedSchemas: true, imports: { types: '@sveltejs/kit', kit: 'kit-stub' } });
       const utils = generateRemoteFunctions(parsed, kit2).get('form-utils.generated.ts')!;

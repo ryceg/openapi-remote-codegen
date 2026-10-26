@@ -107,11 +107,32 @@ export function formCoerce<T extends z.ZodTypeAny>(schema: T) {
 `;
 
 const TYPED_FORM_COERCE = `/**
- * The input form() is typed with: the schema's own input where it is a valid
- * form payload, else any form payload. A schema whose input holds a Date or a
- * null cannot describe FormData, which carries neither until coerced.
+ * A schema input value as FormData carries it: FormData holds no null, so a
+ * nullable field is just absent, and no Date, so a date is its ISO text. A value
+ * the schema leaves unknown is a scalar: form()'s boolean check walks into a
+ * File's properties and would find one there.
  */
-type FormInput<T extends z.ZodType> = z.input<T> extends RemoteFormInput ? z.input<T> : RemoteFormInput;
+type FormValue<V> = unknown extends V
+  ? string | number | boolean
+  : V extends Date
+    ? string
+    : V extends File
+      ? V
+      : V extends readonly (infer U)[]
+        ? FormValue<Exclude<U, null>>[]
+        : V extends object
+          ? FormPayload<V>
+          : V;
+
+/** Keeps each key's optionality, so a required boolean stays one for form() to refuse. */
+type FormPayload<T> = { [K in keyof T]: FormValue<Exclude<T[K], null>> };
+
+/**
+ * The input form() is typed with: the schema's own input where it is a valid
+ * form payload, else that input as FormData carries it. Widening to any form
+ * payload instead would hide the fields from form() and the handler alike.
+ */
+type FormInput<T extends z.ZodType> = z.input<T> extends RemoteFormInput ? z.input<T> : FormPayload<z.input<T>>;
 
 /**
  * Coerce FormData string values before Zod validation (booleans, arrays, empty → null).
