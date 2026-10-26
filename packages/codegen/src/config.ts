@@ -3,7 +3,12 @@ export interface ImportPaths {
   server: string;
   /** Module providing error, redirect. Default: '@sveltejs/kit' */
   kit: string;
-  /** Module providing Zod schemas. Default: '$lib/api/generated/schemas' */
+  /**
+   * Module providing the remote function types (`RemoteFormInput`). Default: '$app/server',
+   * where SvelteKit 3 declares them; SvelteKit 2 declares them in '@sveltejs/kit'.
+   */
+  types: string;
+  /** Module providing Zod schemas. Default: '#lib/api/generated/schemas.js' */
   schemas: string;
   /** Module providing API types/enums. Default: '$api' */
   apiTypes: string;
@@ -20,12 +25,14 @@ export type RemoteKind = 'query' | 'command' | 'form';
 
 export interface ErrorHandling {
   /**
-   * Code to execute on 401. Has access to `url` (current URL).
+   * Code to execute on 401.
    *
    * Accepts a string (used in every catch block) or a function that receives
    * the {@link RemoteKind} and returns kind-specific code. Default: queries
    * redirect to `/auth/login`; commands and forms throw `error(401)` because
-   * SvelteKit rejects redirects from those handlers at runtime.
+   * SvelteKit rejects redirects from those handlers at runtime. The query
+   * redirect carries no return address: SvelteKit 3 throws on `event.url`
+   * inside a query, which may be called from any page.
    */
   on401: string | ((kind: RemoteKind) => string);
   /**
@@ -107,7 +114,8 @@ export type UserConfig = Partial<Omit<GeneratorConfig, 'imports' | 'errorHandlin
 const DEFAULT_IMPORTS: ImportPaths = {
   server: '$app/server',
   kit: '@sveltejs/kit',
-  schemas: '$lib/api/generated/schemas',
+  types: '$app/server',
+  schemas: '#lib/api/generated/schemas.js',
   apiTypes: '$api',
   zod: 'zod',
 };
@@ -115,7 +123,7 @@ const DEFAULT_IMPORTS: ImportPaths = {
 const DEFAULT_ERROR_HANDLING: ErrorHandling = {
   on401: (kind) =>
     kind === 'query'
-      ? 'const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`)'
+      ? "throw redirect(302, '/auth/login')"
       : "throw error(401, 'Unauthorized')",
   on403: "throw error(403, remoteErrorMessage(err, 'Forbidden'))",
   on500: (functionName: string) => `throw translateRemoteError(err, 'Failed to ${functionName}')`,

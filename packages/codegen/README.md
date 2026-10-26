@@ -52,7 +52,8 @@ export default defineConfig({
 |-----|---------|-------------|
 | `server` | `'$app/server'` | Module providing `query`, `command`, `form`, `getRequestEvent` |
 | `kit` | `'@sveltejs/kit'` | Module providing `error`, `redirect` |
-| `schemas` | `'$lib/api/generated/schemas'` | Module providing Zod schemas |
+| `types` | `'$app/server'` | Module providing `RemoteFormInput`. Set `'@sveltejs/kit'` for SvelteKit 2 |
+| `schemas` | `'#lib/api/generated/schemas.js'` | Module providing Zod schemas |
 | `apiTypes` | `'$api'` | Module providing API types and enums |
 | `zod` | `'zod'` | Zod module |
 
@@ -60,7 +61,7 @@ export default defineConfig({
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `on401` | Redirect to `/auth/login` | Code to execute on 401 (has access to `url`) |
+| `on401` | Redirect to `/auth/login` | Code to execute on 401. Queries cannot read `event.url` in SvelteKit 3, so the default carries no return address |
 | `on403` | `error(403, remoteErrorMessage(err, 'Forbidden'))` | Code to execute on 403 |
 | `on500` | `translateRemoteError(err, 'Failed to ...')` | Function taking a human-readable name, returns code for every other status |
 | `forwardStatuses` | `[400, 409, 429]` | Statuses `translateRemoteError` rethrows as themselves rather than as a 500 |
