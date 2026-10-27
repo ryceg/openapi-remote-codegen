@@ -94,6 +94,19 @@ function coerceValue(value: unknown): unknown {
   return value;
 }
 
+/**
+ * SvelteKit submits a form opened with \`.for(key)\` with the key as a top-level
+ * \`id\`. The server routes the instance by its action URL, never by that field,
+ * so a schema that declares no \`id\` drops it rather than refuse the payload.
+ */
+function withoutInstanceKey(schema: z.ZodType, data: Record<string, unknown>): Record<string, unknown> {
+  if (!('id' in data)) return data;
+  const shape = (schema as { shape?: Record<string, unknown> }).shape;
+  if (!shape || 'id' in shape) return data;
+  const { id: _key, ...rest } = data;
+  return rest;
+}
+
 ${config.typedSchemas ? TYPED_FORM_COERCE : UNTYPED_FORM_COERCE}`;
 }
 
@@ -101,7 +114,7 @@ const UNTYPED_FORM_COERCE = `/** Coerce FormData string values before Zod valida
 export function formCoerce<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess((data: unknown) => {
     if (typeof data !== 'object' || data === null) return data;
-    return coerceValue(data);
+    return withoutInstanceKey(schema, coerceValue(data) as Record<string, unknown>);
   }, schema) as unknown as T;
 }
 `;
@@ -146,7 +159,7 @@ type FormInput<T extends z.ZodType> = z.input<T> extends RemoteFormInput ? z.inp
 export function formCoerce<T extends z.ZodType>(schema: T): z.ZodType<z.output<T>, FormInput<T>> {
   return z.preprocess((data: unknown) => {
     if (typeof data !== 'object' || data === null) return data;
-    return coerceValue(data);
+    return withoutInstanceKey(schema, coerceValue(data) as Record<string, unknown>);
   }, schema) as unknown as z.ZodType<z.output<T>, FormInput<T>>;
 }
 `;
