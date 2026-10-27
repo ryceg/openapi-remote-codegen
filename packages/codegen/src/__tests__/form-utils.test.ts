@@ -85,6 +85,25 @@ describe.each([
     expect(result).toEqual({ profile: { name: 'x', tags: ['one', 'two'] } });
   });
 
+  // SvelteKit submits a form opened with `.for(key)` with the key as a top-level `id`.
+  it('drops the instance key `id` a strict schema does not declare', () => {
+    const strict = z.strictObject({ name: z.string() });
+    expect(formCoerce(strict).parse({ id: 'create', name: 'x' })).toEqual({ name: 'x' });
+  });
+
+  it('keeps an `id` the schema declares', () => {
+    const keyed = z.strictObject({ id: z.string(), request: z.strictObject({ name: z.string() }) });
+    expect(formCoerce(keyed).parse({ id: 'abc', request: { name: 'x' } })).toEqual({
+      id: 'abc',
+      request: { name: 'x' },
+    });
+  });
+
+  it('keeps a nested `id` the schema does not declare, so it is still refused', () => {
+    const strict = z.strictObject({ request: z.strictObject({ name: z.string() }) });
+    expect(() => formCoerce(strict).parse({ request: { id: 'x', name: 'y' } })).toThrow();
+  });
+
   it('passes non-object input through untouched', () => {
     expect(formCoerce(z.any()).parse('raw')).toBe('raw');
   });
