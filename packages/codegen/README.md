@@ -128,6 +128,28 @@ exported function name.
 `@sveltejs/kit` is a peer dependency from 0.7.0 — the emitted module imports `error`
 from it, and relies on it throwing.
 
+### SvelteKit 2
+
+From 0.9.0 the defaults target SvelteKit 3. A SvelteKit 2 project sets three of them back:
+
+```ts
+export default defineConfig({
+  imports: {
+    // SvelteKit 2 declares RemoteFormInput in @sveltejs/kit, not $app/server.
+    types: '@sveltejs/kit',
+    // SvelteKit 2 has the $lib alias, not #lib subpath imports.
+    schemas: '$lib/api/generated/schemas',
+  },
+  errorHandling: {
+    // SvelteKit 2 lets a query read event.url, so the login redirect can carry a return address.
+    on401: (kind) =>
+      kind === 'query'
+        ? 'const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`)'
+        : "throw error(401, 'Unauthorized')",
+  },
+});
+```
+
 ## CLI Flags
 
 ```bash

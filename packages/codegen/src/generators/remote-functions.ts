@@ -109,8 +109,8 @@ export function formCoerce<T extends z.ZodTypeAny>(schema: T) {
 const TYPED_FORM_COERCE = `/**
  * A schema input value as FormData carries it: FormData holds no null, so a
  * nullable field is just absent, and no Date, so a date is its ISO text. A value
- * the schema leaves unknown is a scalar: form()'s boolean check walks into a
- * File's properties and would find one there.
+ * the schema leaves unknown is a scalar: RemoteFormInput, the other candidate,
+ * refers to itself, and form()'s boolean check reads that as a required boolean.
  */
 type FormValue<V> = unknown extends V
   ? string | number | boolean
@@ -119,13 +119,16 @@ type FormValue<V> = unknown extends V
     : V extends File
       ? V
       : V extends readonly (infer U)[]
-        ? FormValue<Exclude<U, null>>[]
+        ? FormValue<NonNull<U>>[]
         : V extends object
           ? FormPayload<V>
           : V;
 
+/** A value without its null; a value that is only ever null is absent. */
+type NonNull<V> = [Exclude<V, null>] extends [never] ? undefined : Exclude<V, null>;
+
 /** Keeps each key's optionality, so a required boolean stays one for form() to refuse. */
-type FormPayload<T> = { [K in keyof T]: FormValue<Exclude<T[K], null>> };
+type FormPayload<T> = { [K in keyof T]: FormValue<NonNull<T[K]>> };
 
 /**
  * The input form() is typed with: the schema's own input where it is a valid

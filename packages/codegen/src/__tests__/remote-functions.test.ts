@@ -284,7 +284,7 @@ describe('generateRemoteFunctions', () => {
       expect(utils).toContain(
         'type FormInput<T extends z.ZodType> = z.input<T> extends RemoteFormInput ? z.input<T> : FormPayload<z.input<T>>;'
       );
-      expect(utils).toContain('type FormPayload<T> = { [K in keyof T]: FormValue<Exclude<T[K], null>> };');
+      expect(utils).toContain('type FormPayload<T> = { [K in keyof T]: FormValue<NonNull<T[K]>> };');
     });
 
     it('imports RemoteFormInput from imports.types, not imports.kit', () => {
