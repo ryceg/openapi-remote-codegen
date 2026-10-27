@@ -52,7 +52,8 @@ export default defineConfig({
 |-----|---------|-------------|
 | `server` | `'$app/server'` | Module providing `query`, `command`, `form`, `getRequestEvent` |
 | `kit` | `'@sveltejs/kit'` | Module providing `error`, `redirect` |
-| `schemas` | `'$lib/api/generated/schemas'` | Module providing Zod schemas |
+| `types` | `'$app/server'` | Module providing `RemoteFormInput`. Set `'@sveltejs/kit'` for SvelteKit 2 |
+| `schemas` | `'#lib/api/generated/schemas.js'` | Module providing Zod schemas |
 | `apiTypes` | `'$api'` | Module providing API types and enums |
 | `zod` | `'zod'` | Zod module |
 
@@ -60,7 +61,7 @@ export default defineConfig({
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `on401` | Redirect to `/auth/login` | Code to execute on 401 (has access to `url`) |
+| `on401` | Redirect to `/auth/login` | Code to execute on 401. Queries cannot read `event.url` in SvelteKit 3, so the default carries no return address |
 | `on403` | `error(403, remoteErrorMessage(err, 'Forbidden'))` | Code to execute on 403 |
 | `on500` | `translateRemoteError(err, 'Failed to ...')` | Function taking a human-readable name, returns code for every other status |
 | `forwardStatuses` | `[400, 409, 429]` | Statuses `translateRemoteError` rethrows as themselves rather than as a 500 |
@@ -126,6 +127,28 @@ exported function name.
 
 `@sveltejs/kit` is a peer dependency from 0.7.0 — the emitted module imports `error`
 from it, and relies on it throwing.
+
+### SvelteKit 2
+
+From 0.9.0 the defaults target SvelteKit 3. A SvelteKit 2 project sets three of them back:
+
+```ts
+export default defineConfig({
+  imports: {
+    // SvelteKit 2 declares RemoteFormInput in @sveltejs/kit, not $app/server.
+    types: '@sveltejs/kit',
+    // SvelteKit 2 has the $lib alias, not #lib subpath imports.
+    schemas: '$lib/api/generated/schemas',
+  },
+  errorHandling: {
+    // SvelteKit 2 lets a query read event.url, so the login redirect can carry a return address.
+    on401: (kind) =>
+      kind === 'query'
+        ? 'const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`)'
+        : "throw error(401, 'Unauthorized')",
+  },
+});
+```
 
 ## CLI Flags
 

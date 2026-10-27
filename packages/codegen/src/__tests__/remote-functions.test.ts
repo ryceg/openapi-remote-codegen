@@ -273,10 +273,25 @@ describe('generateRemoteFunctions', () => {
 
     it('emits a formCoerce typed to the schema output and a form payload input', () => {
       const utils = generateRemoteFunctions(parsed, typed).get('form-utils.generated.ts')!;
-      expect(utils).toContain("import type { RemoteFormInput } from '@sveltejs/kit';");
+      expect(utils).toContain("import type { RemoteFormInput } from '$app/server';");
       expect(utils).toContain(
         'export function formCoerce<T extends z.ZodType>(schema: T): z.ZodType<z.output<T>, FormInput<T>>'
       );
+    });
+
+    it('types an input FormData cannot carry as that input with nulls and dates mapped, not as any payload', () => {
+      const utils = generateRemoteFunctions(parsed, typed).get('form-utils.generated.ts')!;
+      expect(utils).toContain(
+        'type FormInput<T extends z.ZodType> = z.input<T> extends RemoteFormInput ? z.input<T> : FormPayload<z.input<T>>;'
+      );
+      expect(utils).toContain('type FormPayload<T> = { [K in keyof T]: FormValue<NonNull<T[K]>> };');
+    });
+
+    it('imports RemoteFormInput from imports.types, not imports.kit', () => {
+      const kit2 = resolveConfig({ typedSchemas: true, imports: { types: '@sveltejs/kit', kit: 'kit-stub' } });
+      const utils = generateRemoteFunctions(parsed, kit2).get('form-utils.generated.ts')!;
+      expect(utils).toContain("import type { RemoteFormInput } from '@sveltejs/kit';");
+      expect(utils).not.toContain('kit-stub');
     });
 
     it('keeps the untyped formCoerce by default', () => {
@@ -295,7 +310,7 @@ describe('generateRemoteFunctions', () => {
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
-      expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
+      expect(content).toContain("if (status === 401) { throw redirect(302, '/auth/login'); }");
       expect(content).toContain("if (status === 403) { throw error(403, remoteErrorMessage(err, 'Forbidden')); }");
     });
 
@@ -310,7 +325,7 @@ describe('generateRemoteFunctions', () => {
 
       const content = getGeneratedFile(parsed, 'foods.generated.remote.ts');
       expect(content).toContain("const status = (err as any)?.status;");
-      expect(content).toContain("if (status === 401) { const { url } = getRequestEvent(); throw redirect(302, `/auth/login?returnUrl=${encodeURIComponent(url.pathname + url.search)}`); }");
+      expect(content).toContain("if (status === 401) { throw redirect(302, '/auth/login'); }");
       expect(content).toContain("if (status === 403) { throw error(403, remoteErrorMessage(err, 'Forbidden')); }");
     });
 
